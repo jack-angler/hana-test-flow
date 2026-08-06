@@ -12,15 +12,29 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST') {
 }
 
 $user = require_user();
-$input = json_input();
+$contentType = (string)($_SERVER['CONTENT_TYPE'] ?? $_SERVER['HTTP_CONTENT_TYPE'] ?? '');
+$isMultipart = stripos($contentType, 'multipart/form-data') === 0 || !empty($_POST) || !empty($_FILES);
+$input = $isMultipart ? $_POST : json_input();
 
 $testCaseId = (int)($input['test_case_id'] ?? 0);
 $resultStatus = trim((string)($input['result_status'] ?? ''));
 $actualResult = trim((string)($input['actual_result'] ?? ''));
 $defectSummary = trim((string)($input['defect_summary'] ?? ''));
+$estimateNumber = trim((string)($input['estimate_number'] ?? ''));
+$targetLoginId = trim((string)($input['target_login_id'] ?? ''));
+$evidenceMemo = trim((string)($input['evidence_memo'] ?? $actualResult));
+$retainedEvidenceIds = evidence_id_list($input['retained_evidence_ids'] ?? []);
 $allowedStatuses = ['passed', 'failed', 'improvement', 'not_available'];
+$evidenceStatuses = ['failed', 'improvement', 'not_available'];
 
 if ($testCaseId < 1 || !in_array($resultStatus, $allowedStatuses, true)) {
+    if ($isMultipart && empty($_POST) && empty($_FILES)) {
+        json_response([
+            'success' => false,
+            'message' => '첨부 용량이 너무 크거나 요청 본문을 읽을 수 없습니다. 이미지를 줄여 다시 저장해 주세요.',
+        ], 413);
+    }
+
     json_response([
         'success' => false,
         'message' => '테스트 결과를 선택해주세요.',
@@ -83,6 +97,101 @@ try {
         $actualResult === '' ? null : $actualResult,
         $defectSummary === '' ? null : $defectSummary,
     ]);
+    $historyId = (int)$pdo->lastInsertId();
+
+    if ($isMultipart && in_array($resultStatus, $evidenceStatuses, true)) {
+        ensure_evidence_table_exists($pdo);
+
+        $files = normalize_uploaded_files($_FILES['evidence_images'] ?? null);
+        $retainedEvidenceCount = copy_retained_evidences($pdo, [
+            'result_id' => $resultId,
+            'history_id' => $historyId,
+            'case_id' => $testCaseId,
+            'user_id' => (int)$user['id'],
+            'organization_id' => (int)$user['organization_id'],
+            'result_status' => $resultStatus,
+            'estimate_number' => $estimateNumber,
+            'target_login_id' => $targetLoginId,
+            'memo' => $evidenceMemo,
+            'retained_ids' => $retainedEvidenceIds,
+        ]);
+
+        if ($retainedEvidenceCount === 0 && count($files) === 0) {
+            insert_evidence($pdo, [
+                'result_id' => $resultId,
+                'history_id' => $historyId,
+                'case_id' => $testCaseId,
+                'user_id' => (int)$user['id'],
+                'organization_id' => (int)$user['organization_id'],
+                'result_status' => $resultStatus,
+                'source_type' => 'file',
+                'estimate_number' => $estimateNumber,
+                'target_login_id' => $targetLoginId,
+                'memo' => $evidenceMemo,
+            ]);
+        }
+
+        foreach ($files as $file) {
+            if (($file['error'] ?? UPLOAD_ERR_NO_FILE) === UPLOAD_ERR_NO_FILE) {
+                continue;
+            }
+
+            if (($file['error'] ?? UPLOAD_ERR_OK) !== UPLOAD_ERR_OK) {
+                throw new RuntimeException('Image upload failed.');
+            }
+
+            $tmpName = (string)$file['tmp_name'];
+            $mimeType = mime_content_type($tmpName) ?: '';
+            $allowedMimeTypes = ['image/png', 'image/jpeg', 'image/webp', 'image/gif'];
+
+            if (!in_array($mimeType, $allowedMimeTypes, true)) {
+                throw new RuntimeException('Only image files can be attached.');
+            }
+
+            $imageSize = getimagesize($tmpName);
+            $extension = match ($mimeType) {
+                'image/png' => 'png',
+                'image/jpeg' => 'jpg',
+                'image/webp' => 'webp',
+                'image/gif' => 'gif',
+                default => 'bin',
+            };
+            $uploadRoot = __DIR__ . '/uploads/test-result-evidences';
+            $relativeDir = date('Y/m');
+            $targetDir = $uploadRoot . '/' . $relativeDir;
+
+            if (!is_dir($targetDir) && !mkdir($targetDir, 0775, true) && !is_dir($targetDir)) {
+                throw new RuntimeException('Failed to create upload directory.');
+            }
+
+            $storedFilename = bin2hex(random_bytes(16)) . '.' . $extension;
+            $targetPath = $targetDir . '/' . $storedFilename;
+
+            if (!move_uploaded_file($tmpName, $targetPath)) {
+                throw new RuntimeException('Failed to save uploaded image.');
+            }
+
+            insert_evidence($pdo, [
+                'result_id' => $resultId,
+                'history_id' => $historyId,
+                'case_id' => $testCaseId,
+                'user_id' => (int)$user['id'],
+                'organization_id' => (int)$user['organization_id'],
+                'result_status' => $resultStatus,
+                'source_type' => ((string)($input['source_type'] ?? 'file')) === 'clipboard' ? 'clipboard' : 'file',
+                'estimate_number' => $estimateNumber,
+                'target_login_id' => $targetLoginId,
+                'memo' => $evidenceMemo,
+                'original_filename' => (string)($file['name'] ?? ''),
+                'stored_filename' => $storedFilename,
+                'file_path' => 'uploads/test-result-evidences/' . $relativeDir . '/' . $storedFilename,
+                'mime_type' => $mimeType,
+                'file_size_bytes' => (int)($file['size'] ?? 0),
+                'image_width' => is_array($imageSize) ? (int)$imageSize[0] : null,
+                'image_height' => is_array($imageSize) ? (int)$imageSize[1] : null,
+            ]);
+        }
+    }
 
     $pdo->commit();
 
@@ -104,4 +213,149 @@ try {
         'message' => '테스트 결과 저장 중 오류가 발생했습니다.',
         'error' => $exception->getMessage(),
     ], 500);
+}
+
+function normalize_uploaded_files(?array $files): array
+{
+    if ($files === null || !isset($files['name'])) {
+        return [];
+    }
+
+    if (!is_array($files['name'])) {
+        return [$files];
+    }
+
+    $normalized = [];
+    $count = count($files['name']);
+
+    for ($index = 0; $index < $count; $index++) {
+        $normalized[] = [
+            'name' => $files['name'][$index] ?? '',
+            'type' => $files['type'][$index] ?? '',
+            'tmp_name' => $files['tmp_name'][$index] ?? '',
+            'error' => $files['error'][$index] ?? UPLOAD_ERR_NO_FILE,
+            'size' => $files['size'][$index] ?? 0,
+        ];
+    }
+
+    return $normalized;
+}
+
+function evidence_id_list(mixed $value): array
+{
+    if (is_string($value)) {
+        $decoded = json_decode($value, true);
+        $value = is_array($decoded) ? $decoded : [];
+    }
+
+    if (!is_array($value)) {
+        return [];
+    }
+
+    return array_values(array_unique(array_filter(array_map('intval', $value), static fn (int $id): bool => $id > 0)));
+}
+
+function ensure_evidence_table_exists(PDO $pdo): void
+{
+    $stmt = $pdo->query("SHOW TABLES LIKE 'test_case_result_evidences'");
+
+    if ($stmt === false || $stmt->fetchColumn() === false) {
+        throw new RuntimeException('증빙 테이블이 아직 생성되지 않았습니다. api/install.php를 실행해 DB 마이그레이션을 적용해 주세요.');
+    }
+}
+
+function copy_retained_evidences(PDO $pdo, array $context): int
+{
+    $retainedIds = $context['retained_ids'] ?? [];
+
+    if (count($retainedIds) === 0) {
+        return 0;
+    }
+
+    $placeholders = implode(',', array_fill(0, count($retainedIds), '?'));
+    $stmt = $pdo->prepare(
+        "SELECT
+            source_type,
+            original_filename,
+            stored_filename,
+            file_path,
+            mime_type,
+            file_size_bytes,
+            image_width,
+            image_height
+         FROM test_case_result_evidences
+         WHERE id IN ({$placeholders})
+           AND test_case_result_id = ?
+           AND test_case_id = ?
+           AND user_id = ?
+           AND organization_id = ?
+           AND file_path IS NOT NULL
+         ORDER BY id ASC"
+    );
+    $stmt->execute([
+        ...$retainedIds,
+        $context['result_id'],
+        $context['case_id'],
+        $context['user_id'],
+        $context['organization_id'],
+    ]);
+
+    $count = 0;
+
+    foreach ($stmt->fetchAll() as $row) {
+        insert_evidence($pdo, [
+            'result_id' => $context['result_id'],
+            'history_id' => $context['history_id'],
+            'case_id' => $context['case_id'],
+            'user_id' => $context['user_id'],
+            'organization_id' => $context['organization_id'],
+            'result_status' => $context['result_status'],
+            'source_type' => $row['source_type'],
+            'estimate_number' => $context['estimate_number'],
+            'target_login_id' => $context['target_login_id'],
+            'memo' => $context['memo'],
+            'original_filename' => $row['original_filename'],
+            'stored_filename' => $row['stored_filename'],
+            'file_path' => $row['file_path'],
+            'mime_type' => $row['mime_type'],
+            'file_size_bytes' => $row['file_size_bytes'],
+            'image_width' => $row['image_width'],
+            'image_height' => $row['image_height'],
+        ]);
+        $count++;
+    }
+
+    return $count;
+}
+
+function insert_evidence(PDO $pdo, array $evidence): void
+{
+    $stmt = $pdo->prepare(
+        'INSERT INTO test_case_result_evidences (
+            test_case_result_id, test_case_result_history_id, test_case_id,
+            user_id, organization_id, result_status, source_type,
+            estimate_number, target_login_id, memo, original_filename,
+            stored_filename, file_path, mime_type, file_size_bytes,
+            image_width, image_height
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+    );
+    $stmt->execute([
+        $evidence['result_id'],
+        $evidence['history_id'],
+        $evidence['case_id'],
+        $evidence['user_id'],
+        $evidence['organization_id'],
+        $evidence['result_status'],
+        $evidence['source_type'],
+        ($evidence['estimate_number'] ?? '') === '' ? null : $evidence['estimate_number'],
+        ($evidence['target_login_id'] ?? '') === '' ? null : $evidence['target_login_id'],
+        ($evidence['memo'] ?? '') === '' ? null : $evidence['memo'],
+        ($evidence['original_filename'] ?? '') === '' ? null : $evidence['original_filename'],
+        $evidence['stored_filename'] ?? null,
+        $evidence['file_path'] ?? null,
+        $evidence['mime_type'] ?? null,
+        $evidence['file_size_bytes'] ?? null,
+        $evidence['image_width'] ?? null,
+        $evidence['image_height'] ?? null,
+    ]);
 }

@@ -224,6 +224,11 @@
   background: #fbfdfc;
 }
 
+.case-item:focus {
+  outline: 3px solid rgba(0, 133, 111, 0.18);
+  outline-offset: 2px;
+}
+
 .case-item.result-passed {
   border-left-color: #00856f;
   background: #f3fbf8;
@@ -609,10 +614,167 @@
   color: #c0392b;
 }
 
+.evidence-modal {
+  width: min(100%, 640px);
+  max-height: calc(100svh - 48px);
+  overflow: auto;
+  background: #ffffff;
+  border-radius: 8px;
+  padding: 28px;
+  box-shadow: 0 30px 80px rgba(3, 39, 35, 0.28);
+}
+
+.evidence-modal .modal-header p {
+  margin: 4px 0 0;
+  color: #66817d;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.evidence-modal label {
+  display: block;
+  margin-bottom: 16px;
+}
+
+.evidence-modal label span {
+  display: block;
+  margin-bottom: 8px;
+  color: #314b47;
+  font-size: 14px;
+  font-weight: 800;
+}
+
+.evidence-modal input,
+.evidence-modal textarea {
+  width: 100%;
+  border: 1px solid #c9d9d6;
+  border-radius: 6px;
+  color: #092f2a;
+  background: #fbfdfc;
+  font-size: 15px;
+}
+
+.evidence-modal input {
+  height: 44px;
+  padding: 0 12px;
+}
+
+.evidence-modal textarea {
+  min-height: 128px;
+  resize: vertical;
+  padding: 12px;
+  line-height: 1.55;
+}
+
+.evidence-modal input:focus,
+.evidence-modal textarea:focus {
+  border-color: #00856f;
+  outline: 3px solid rgba(0, 133, 111, 0.16);
+}
+
+.evidence-field-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.evidence-dropzone {
+  display: grid;
+  gap: 10px;
+  place-items: center;
+  margin-bottom: 16px;
+  border: 2px dashed #bdd2ce;
+  border-radius: 8px;
+  padding: 24px;
+  color: #425f5a;
+  background: #f7fbfa;
+  text-align: center;
+}
+
+.evidence-dropzone.is-dragging {
+  border-color: #00856f;
+  background: #e9f6f3;
+}
+
+.evidence-dropzone strong {
+  color: #073b35;
+  font-size: 16px;
+}
+
+.evidence-dropzone span {
+  color: #66817d;
+  font-size: 14px;
+}
+
+.evidence-dropzone .secondary-button {
+  width: auto;
+  min-width: 132px;
+  margin-top: 2px;
+}
+
+.evidence-dropzone input {
+  display: none;
+}
+
+.evidence-preview-list {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.evidence-preview {
+  display: grid;
+  grid-template-columns: 64px minmax(0, 1fr) 34px;
+  align-items: center;
+  gap: 10px;
+  border: 1px solid rgba(0, 117, 100, 0.14);
+  border-radius: 6px;
+  padding: 8px;
+  background: #fbfdfc;
+}
+
+.evidence-preview img {
+  width: 64px;
+  height: 48px;
+  border-radius: 4px;
+  object-fit: cover;
+  background: #eef7f4;
+}
+
+.evidence-preview strong,
+.evidence-preview span {
+  display: block;
+}
+
+.evidence-preview strong {
+  overflow: hidden;
+  color: #073b35;
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.evidence-preview span {
+  margin-top: 2px;
+  color: #66817d;
+  font-size: 12px;
+}
+
+.evidence-preview button {
+  width: 30px;
+  height: 30px;
+  border: 1px solid #c9d9d6;
+  border-radius: 6px;
+  color: #3f5c57;
+  background: #ffffff;
+  cursor: pointer;
+}
+
 @media (max-width: 480px) {
   .login-box,
   .signup-modal,
-  .common-dialog {
+  .common-dialog,
+  .evidence-modal {
     padding: 26px;
   }
 }
@@ -655,5 +817,9 @@
   .select-list,
   .case-list {
     max-height: none;
+  }
+
+  .evidence-field-grid {
+    grid-template-columns: 1fr;
   }
 }

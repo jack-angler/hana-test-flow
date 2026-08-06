@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import './App.css'
 import CommonDialog from './components/CommonDialog'
-import { apiRequest } from './lib/api'
+import { apiRequest, apiUrl } from './lib/api'
 
 function App() {
   const [currentUser, setCurrentUser] = useState(null)
@@ -44,7 +44,22 @@ function App() {
   const [selectedScenarioId, setSelectedScenarioId] = useState('')
   const [testingMessage, setTestingMessage] = useState('')
   const [isLoadingTesting, setIsLoadingTesting] = useState(false)
-  const firstNotTestedCaseRef = useRef(null)
+  const [isSavingEvidence, setIsSavingEvidence] = useState(false)
+  const [evidenceDialog, setEvidenceDialog] = useState({
+    isOpen: false,
+    testCase: null,
+    resultStatus: '',
+    description: '',
+    estimateNumber: '',
+    targetLoginId: '',
+    files: [],
+    message: '',
+    isDragging: false,
+    isLoading: false,
+  })
+  const caseRefs = useRef(new Map())
+  const pendingScrollCaseIdRef = useRef(null)
+  const evidenceFileInputRef = useRef(null)
 
   const resultOptions = [
     { value: 'passed', label: '성공' },
@@ -52,6 +67,8 @@ function App() {
     { value: 'improvement', label: '개선' },
     { value: 'not_available', label: '테스트불가' },
   ]
+
+  const evidenceStatuses = ['failed', 'improvement', 'not_available']
 
   const dashboardMenus =
     currentUser?.role === 'admin'
@@ -139,6 +156,7 @@ function App() {
   useEffect(() => {
     if (!selectedScenarioId) {
       setTestCases([])
+      pendingScrollCaseIdRef.current = null
       return
     }
 
@@ -153,7 +171,13 @@ function App() {
           )}`,
         )
 
-        setTestCases(result.test_cases ?? [])
+        const nextTestCases = result.test_cases ?? []
+        const firstNotTestedCase =
+          nextTestCases.find((testCase) => testCase.result_status === 'not_tested') ??
+          nextTestCases[0]
+
+        pendingScrollCaseIdRef.current = firstNotTestedCase?.id ?? null
+        setTestCases(nextTestCases)
       } catch (error) {
         setTestingMessage(error.message)
       } finally {
@@ -165,15 +189,21 @@ function App() {
   }, [selectedScenarioId])
 
   useEffect(() => {
-    if (testCases.length === 0) {
+    const scrollCaseId = pendingScrollCaseIdRef.current
+
+    if (testCases.length === 0 || scrollCaseId === null) {
       return
     }
 
     const timer = window.setTimeout(() => {
-      firstNotTestedCaseRef.current?.scrollIntoView({
+      const target = caseRefs.current.get(scrollCaseId)
+
+      target?.scrollIntoView({
         behavior: 'smooth',
         block: 'start',
       })
+      target?.focus({ preventScroll: true })
+      pendingScrollCaseIdRef.current = null
     }, 120)
 
     return () => window.clearTimeout(timer)
@@ -370,6 +400,15 @@ function App() {
     }
   }
 
+  const scheduleNextCaseScroll = (testCaseId) => {
+    const currentIndex = testCases.findIndex(
+      (testCase) => String(testCase.id) === String(testCaseId),
+    )
+    const nextCase = currentIndex >= 0 ? testCases[currentIndex + 1] : null
+
+    pendingScrollCaseIdRef.current = nextCase?.id ?? testCaseId
+  }
+
   const saveTestResult = async (testCaseId, resultStatus) => {
     setTestingMessage('')
 
@@ -389,11 +428,247 @@ function App() {
                 ...testCase,
                 result_status: resultStatus,
               }
+          : testCase,
+        ),
+      )
+      scheduleNextCaseScroll(testCaseId)
+    } catch (error) {
+      setTestingMessage(error.message)
+    }
+  }
+
+  const releaseEvidenceFiles = (files) => {
+    files.forEach((file) => {
+      if (!file.isExisting) {
+        URL.revokeObjectURL(file.previewUrl)
+      }
+    })
+  }
+
+  const openEvidenceDialog = async (testCase, resultStatus) => {
+    setTestingMessage('')
+    setEvidenceDialog((current) => {
+      releaseEvidenceFiles(current.files)
+
+      return {
+        isOpen: true,
+        testCase,
+        resultStatus,
+        description: testCase.actual_result ?? '',
+        estimateNumber: '',
+        targetLoginId: '',
+        files: [],
+        message: '',
+        isDragging: false,
+        isLoading: true,
+      }
+    })
+
+    try {
+      const result = await apiRequest(
+        `/test-result-evidences.php?test_case_id=${encodeURIComponent(
+          testCase.id,
+        )}`,
+      )
+      const evidence = result.evidence ?? {}
+      const existingFiles = (result.images ?? []).map((image) => ({
+        id: `existing-${image.id}`,
+        evidenceId: image.id,
+        isExisting: true,
+        name: image.name || 'attached-image',
+        size: image.size ?? 0,
+        sourceType: image.source_type ?? 'file',
+        previewUrl: apiUrl(`/${image.file_path}`),
+      }))
+
+      setEvidenceDialog((current) => {
+        if (!current.isOpen || current.testCase?.id !== testCase.id) {
+          return current
+        }
+
+        return {
+          ...current,
+          description: evidence.memo ?? testCase.actual_result ?? '',
+          estimateNumber: evidence.estimate_number ?? '',
+          targetLoginId: evidence.target_login_id ?? '',
+          files: existingFiles,
+          message: '',
+          isLoading: false,
+        }
+      })
+    } catch (error) {
+      setEvidenceDialog((current) => ({
+        ...current,
+        message: error.message,
+        isLoading: false,
+      }))
+    }
+  }
+
+  const closeEvidenceDialog = (force = false) => {
+    if (isSavingEvidence && !force) {
+      return
+    }
+
+    setEvidenceDialog((current) => {
+      releaseEvidenceFiles(current.files)
+
+      return {
+        isOpen: false,
+        testCase: null,
+        resultStatus: '',
+        description: '',
+        estimateNumber: '',
+        targetLoginId: '',
+        files: [],
+        message: '',
+        isDragging: false,
+        isLoading: false,
+      }
+    })
+  }
+
+  const updateEvidenceDialog = (event) => {
+    const { name, value } = event.target
+
+    setEvidenceDialog((current) => ({
+      ...current,
+      [name]: value,
+    }))
+  }
+
+  const addEvidenceFiles = (files, sourceType = 'file') => {
+    const imageFiles = Array.from(files).filter((file) =>
+      file.type.startsWith('image/'),
+    )
+
+    if (imageFiles.length === 0) {
+      setEvidenceDialog((current) => ({
+        ...current,
+        message: '이미지 파일만 첨부할 수 있습니다.',
+      }))
+      return
+    }
+
+    const nextFiles = imageFiles.map((file) => ({
+      id: `${Date.now()}-${crypto.randomUUID()}`,
+      file,
+      isExisting: false,
+      name: file.name || 'clipboard-image.png',
+      size: file.size,
+      sourceType,
+      previewUrl: URL.createObjectURL(file),
+    }))
+
+    setEvidenceDialog((current) => ({
+      ...current,
+      files: [...current.files, ...nextFiles],
+      message: '',
+    }))
+  }
+
+  const removeEvidenceFile = (fileId) => {
+    setEvidenceDialog((current) => {
+      const fileToRemove = current.files.find((file) => file.id === fileId)
+
+      if (fileToRemove && !fileToRemove.isExisting) {
+        URL.revokeObjectURL(fileToRemove.previewUrl)
+      }
+
+      return {
+        ...current,
+        files: current.files.filter((file) => file.id !== fileId),
+      }
+    })
+  }
+
+  const handleEvidencePaste = (event) => {
+    const files = Array.from(event.clipboardData?.items ?? [])
+      .filter((item) => item.type.startsWith('image/'))
+      .map((item) => item.getAsFile())
+      .filter(Boolean)
+
+    if (files.length > 0) {
+      event.preventDefault()
+      addEvidenceFiles(files, 'clipboard')
+    }
+  }
+
+  const submitEvidenceResult = async (event) => {
+    event.preventDefault()
+
+    if (!evidenceDialog.testCase) {
+      return
+    }
+
+    const selectedResultStatus = evidenceDialog.resultStatus
+
+    if (!evidenceStatuses.includes(selectedResultStatus)) {
+      setEvidenceDialog((current) => ({
+        ...current,
+        message: '테스트 결과를 다시 선택해 주세요.',
+      }))
+      return
+    }
+
+    setIsSavingEvidence(true)
+    setEvidenceDialog((current) => ({
+      ...current,
+      message: '',
+    }))
+
+    const formData = new FormData()
+    formData.append('test_case_id', String(evidenceDialog.testCase.id))
+    formData.append('result_status', selectedResultStatus)
+    formData.append('actual_result', evidenceDialog.description)
+    formData.append('evidence_memo', evidenceDialog.description)
+    formData.append('estimate_number', evidenceDialog.estimateNumber)
+    formData.append('target_login_id', evidenceDialog.targetLoginId)
+    formData.append(
+      'source_type',
+      evidenceDialog.files.some((file) => file.sourceType === 'clipboard')
+        ? 'clipboard'
+        : 'file',
+    )
+    formData.append(
+      'retained_evidence_ids',
+      JSON.stringify(
+        evidenceDialog.files
+          .filter((file) => file.isExisting)
+          .map((file) => file.evidenceId),
+      ),
+    )
+
+    evidenceDialog.files.filter((file) => !file.isExisting).forEach((file) => {
+      formData.append('evidence_images[]', file.file, file.name)
+    })
+
+    try {
+      await apiRequest('/save-test-result.php', {
+        method: 'POST',
+        body: formData,
+      })
+
+      scheduleNextCaseScroll(evidenceDialog.testCase.id)
+      setTestCases((current) =>
+        current.map((testCase) =>
+          testCase.id === evidenceDialog.testCase.id
+            ? {
+                ...testCase,
+                result_status: selectedResultStatus,
+                actual_result: evidenceDialog.description,
+              }
             : testCase,
         ),
       )
+      closeEvidenceDialog(true)
     } catch (error) {
-      setTestingMessage(error.message)
+      setEvidenceDialog((current) => ({
+        ...current,
+        message: error.message,
+      }))
+    } finally {
+      setIsSavingEvidence(false)
     }
   }
 
@@ -459,15 +734,18 @@ function App() {
             <div className="case-list">
               {testCases.map((testCase) => {
                 const isNotTested = testCase.result_status === 'not_tested'
-                const isFirstNotTested =
-                  isNotTested &&
-                  testCases.find((item) => item.result_status === 'not_tested')
-                    ?.id === testCase.id
 
                 return (
                 <article
                   key={testCase.id}
-                  ref={isFirstNotTested ? firstNotTestedCaseRef : null}
+                  ref={(element) => {
+                    if (element) {
+                      caseRefs.current.set(testCase.id, element)
+                    } else {
+                      caseRefs.current.delete(testCase.id)
+                    }
+                  }}
+                  tabIndex={-1}
                   className={`case-item result-${testCase.result_status}`}
                 >
                   <div className="case-title">
@@ -485,7 +763,11 @@ function App() {
                             ? 'is-selected'
                             : ''
                         }
-                        onClick={() => saveTestResult(testCase.id, option.value)}
+                        onClick={() =>
+                          evidenceStatuses.includes(option.value)
+                            ? openEvidenceDialog(testCase, option.value)
+                            : saveTestResult(testCase.id, option.value)
+                        }
                       >
                         {option.label}
                       </button>
@@ -584,6 +866,159 @@ function App() {
         <section className="dashboard-main">
           {renderDashboardContent()}
         </section>
+
+        {evidenceDialog.isOpen && (
+          <div className="modal-backdrop" role="presentation">
+            <form
+              className="evidence-modal"
+              onSubmit={submitEvidenceResult}
+              onPaste={handleEvidencePaste}
+            >
+              <div className="modal-header">
+                <div>
+                  <h2>결과 증빙 등록</h2>
+                  <p>
+                    {evidenceDialog.testCase?.case_code} ·{' '}
+                    {
+                      resultOptions.find(
+                        (option) => option.value === evidenceDialog.resultStatus,
+                      )?.label
+                    }
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  className="close-button"
+                  aria-label="닫기"
+                  onClick={() => closeEvidenceDialog()}
+                >
+                  x
+                </button>
+              </div>
+
+              {evidenceDialog.isLoading && (
+                <p className="form-message">기존 증빙을 불러오는 중입니다.</p>
+              )}
+
+              <label>
+                <span>설명</span>
+                <textarea
+                  name="description"
+                  value={evidenceDialog.description}
+                  onChange={updateEvidenceDialog}
+                  placeholder="확인한 현상, 재현 조건, 기대와 다른 부분을 적어주세요."
+                  rows={5}
+                />
+              </label>
+
+              <div className="evidence-field-grid">
+                <label>
+                  <span>견적번호(선택)</span>
+                  <input
+                    type="text"
+                    name="estimateNumber"
+                    value={evidenceDialog.estimateNumber}
+                    onChange={updateEvidenceDialog}
+                    placeholder="선택 입력"
+                  />
+                </label>
+                <label>
+                  <span>로그인ID(선택)</span>
+                  <input
+                    type="text"
+                    name="targetLoginId"
+                    value={evidenceDialog.targetLoginId}
+                    onChange={updateEvidenceDialog}
+                    placeholder="선택 입력"
+                  />
+                </label>
+              </div>
+
+              <div
+                className={`evidence-dropzone ${
+                  evidenceDialog.isDragging ? 'is-dragging' : ''
+                }`}
+                onDragOver={(event) => {
+                  event.preventDefault()
+                  setEvidenceDialog((current) => ({
+                    ...current,
+                    isDragging: true,
+                  }))
+                }}
+                onDragLeave={() =>
+                  setEvidenceDialog((current) => ({
+                    ...current,
+                    isDragging: false,
+                  }))
+                }
+                onDrop={(event) => {
+                  event.preventDefault()
+                  setEvidenceDialog((current) => ({
+                    ...current,
+                    isDragging: false,
+                  }))
+                  addEvidenceFiles(event.dataTransfer.files)
+                }}
+              >
+                <strong>이미지 첨부</strong>
+                <span>파일을 끌어오거나, 이 창에서 캡처 이미지를 붙여넣으세요(Ctrl + V)</span>
+                <button
+                  type="button"
+                  className="secondary-button"
+                  onClick={() => evidenceFileInputRef.current?.click()}
+                >
+                  파일 선택
+                </button>
+                <input
+                  ref={evidenceFileInputRef}
+                  type="file"
+                  accept="image/*"
+                  multiple
+                  onChange={(event) => {
+                    addEvidenceFiles(event.target.files)
+                    event.target.value = ''
+                  }}
+                />
+              </div>
+
+              {evidenceDialog.files.length > 0 && (
+                <div className="evidence-preview-list">
+                  {evidenceDialog.files.map((file) => (
+                    <div key={file.id} className="evidence-preview">
+                      <img src={file.previewUrl} alt="" />
+                      <div>
+                        <strong>{file.name}</strong>
+                        <span>
+                          {file.isExisting ? '기존 첨부' : '새 첨부'} ·{' '}
+                          {Math.ceil(file.size / 1024).toLocaleString()} KB
+                        </span>
+                      </div>
+                      <button
+                        type="button"
+                        aria-label="첨부 제거"
+                        onClick={() => removeEvidenceFile(file.id)}
+                      >
+                        x
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {evidenceDialog.message && (
+                <p className="form-message is-error">{evidenceDialog.message}</p>
+              )}
+
+              <button
+                type="submit"
+                className="primary-button"
+                disabled={isSavingEvidence || evidenceDialog.isLoading}
+              >
+                {isSavingEvidence ? '저장 중' : '결과 저장'}
+              </button>
+            </form>
+          </div>
+        )}
       </main>
     )
   }

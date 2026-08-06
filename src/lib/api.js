@@ -8,7 +8,10 @@ export function apiUrl(path) {
 
 export async function apiRequest(path, options = {}) {
   const hasBody = options.body !== undefined
-  const defaultHeaders = hasBody ? { 'Content-Type': 'application/json' } : {}
+  const isFormData =
+    typeof FormData !== 'undefined' && options.body instanceof FormData
+  const defaultHeaders =
+    hasBody && !isFormData ? { 'Content-Type': 'application/json' } : {}
 
   const response = await fetch(apiUrl(path), {
     headers: {
@@ -22,7 +25,10 @@ export async function apiRequest(path, options = {}) {
   const data = await response.json().catch(() => null)
 
   if (!response.ok) {
-    throw new Error(data?.message ?? 'API request failed.')
+    const message = data?.message ?? 'API request failed.'
+    const detail = data?.error ? `\n${data.error}` : ''
+
+    throw new Error(`${message}${detail}`)
   }
 
   return data
