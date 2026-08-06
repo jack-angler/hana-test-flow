@@ -11,15 +11,35 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'GET') {
     ], 405);
 }
 
-require_user();
+$user = require_user();
 
 try {
-    $stmt = db()->query(
-        'SELECT id, name
-         FROM test_runs
-         WHERE is_active = 1
-         ORDER BY updated_at DESC, id DESC'
+    $stmt = db()->prepare(
+        'SELECT
+            tr.id,
+            tr.name,
+            COUNT(DISTINCT tc.id) AS case_count,
+            COUNT(DISTINCT CASE
+                WHEN tcr.id IS NOT NULL
+                 AND tcr.result_status <> "not_tested"
+                THEN tc.id
+                ELSE NULL
+            END) AS completed_count
+         FROM test_runs tr
+         LEFT JOIN test_scenarios ts
+            ON ts.test_run_id = tr.id
+         LEFT JOIN test_cases tc
+            ON tc.test_scenario_id = ts.id
+           AND tc.is_current = 1
+           AND tc.is_deleted = 0
+         LEFT JOIN test_case_results tcr
+            ON tcr.test_case_id = tc.id
+           AND tcr.user_id = ?
+         WHERE tr.is_active = 1
+         GROUP BY tr.id, tr.name, tr.updated_at
+         ORDER BY tr.updated_at DESC, tr.id DESC'
     );
+    $stmt->execute([(int)$user['id']]);
 
     json_response([
         'success' => true,

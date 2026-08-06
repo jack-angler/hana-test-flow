@@ -11,7 +11,7 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'GET') {
     ], 405);
 }
 
-require_user();
+$user = require_user();
 
 $testRunId = (int)($_GET['test_run_id'] ?? 0);
 
@@ -28,17 +28,26 @@ try {
             ts.id,
             ts.scenario_code,
             ts.name,
-            COUNT(tc.id) AS case_count
+            COUNT(DISTINCT tc.id) AS case_count,
+            COUNT(DISTINCT CASE
+                WHEN tcr.id IS NOT NULL
+                 AND tcr.result_status <> "not_tested"
+                THEN tc.id
+                ELSE NULL
+            END) AS completed_count
          FROM test_scenarios ts
          LEFT JOIN test_cases tc
             ON tc.test_scenario_id = ts.id
            AND tc.is_current = 1
            AND tc.is_deleted = 0
+         LEFT JOIN test_case_results tcr
+            ON tcr.test_case_id = tc.id
+           AND tcr.user_id = ?
          WHERE ts.test_run_id = ?
          GROUP BY ts.id, ts.scenario_code, ts.name, ts.sort_order
          ORDER BY ts.sort_order ASC, ts.id ASC'
     );
-    $stmt->execute([$testRunId]);
+    $stmt->execute([(int)$user['id'], $testRunId]);
 
     json_response([
         'success' => true,

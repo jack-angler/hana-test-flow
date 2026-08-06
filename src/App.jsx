@@ -58,7 +58,7 @@ function App() {
     isLoading: false,
   })
   const caseRefs = useRef(new Map())
-  const pendingScrollCaseIdRef = useRef(null)
+  const pendingScrollRef = useRef(null)
   const evidenceFileInputRef = useRef(null)
 
   const resultOptions = [
@@ -156,7 +156,7 @@ function App() {
   useEffect(() => {
     if (!selectedScenarioId) {
       setTestCases([])
-      pendingScrollCaseIdRef.current = null
+      pendingScrollRef.current = null
       return
     }
 
@@ -176,7 +176,9 @@ function App() {
           nextTestCases.find((testCase) => testCase.result_status === 'not_tested') ??
           nextTestCases[0]
 
-        pendingScrollCaseIdRef.current = firstNotTestedCase?.id ?? null
+        pendingScrollRef.current = firstNotTestedCase
+          ? { caseId: firstNotTestedCase.id, block: 'start' }
+          : null
         setTestCases(nextTestCases)
       } catch (error) {
         setTestingMessage(error.message)
@@ -189,21 +191,21 @@ function App() {
   }, [selectedScenarioId])
 
   useEffect(() => {
-    const scrollCaseId = pendingScrollCaseIdRef.current
+    const pendingScroll = pendingScrollRef.current
 
-    if (testCases.length === 0 || scrollCaseId === null) {
+    if (testCases.length === 0 || pendingScroll === null) {
       return
     }
 
     const timer = window.setTimeout(() => {
-      const target = caseRefs.current.get(scrollCaseId)
+      const target = caseRefs.current.get(pendingScroll.caseId)
 
       target?.scrollIntoView({
         behavior: 'smooth',
-        block: 'start',
+        block: pendingScroll.block,
       })
       target?.focus({ preventScroll: true })
-      pendingScrollCaseIdRef.current = null
+      pendingScrollRef.current = null
     }, 120)
 
     return () => window.clearTimeout(timer)
@@ -406,7 +408,39 @@ function App() {
     )
     const nextCase = currentIndex >= 0 ? testCases[currentIndex + 1] : null
 
-    pendingScrollCaseIdRef.current = nextCase?.id ?? testCaseId
+    pendingScrollRef.current = {
+      caseId: nextCase?.id ?? testCaseId,
+      block: 'start',
+    }
+  }
+
+  const refreshProgressSummary = async () => {
+    if (!selectedTestRunId) {
+      return
+    }
+
+    const [runsResult, scenariosResult] = await Promise.all([
+      apiRequest('/test-runs.php'),
+      apiRequest(
+        `/test-scenarios.php?test_run_id=${encodeURIComponent(
+          selectedTestRunId,
+        )}`,
+      ),
+    ])
+
+    setTestRuns(runsResult.test_runs ?? [])
+    setScenarios(scenariosResult.scenarios ?? [])
+  }
+
+  const clampProgressPercent = (completedCount, caseCount) => {
+    if (caseCount < 1) {
+      return 0
+    }
+
+    return Math.min(
+      100,
+      Math.max(0, Math.round((completedCount / caseCount) * 100)),
+    )
   }
 
   const saveTestResult = async (testCaseId, resultStatus) => {
@@ -421,6 +455,7 @@ function App() {
         }),
       })
 
+      scheduleNextCaseScroll(testCaseId)
       setTestCases((current) =>
         current.map((testCase) =>
           testCase.id === testCaseId
@@ -431,7 +466,7 @@ function App() {
           : testCase,
         ),
       )
-      scheduleNextCaseScroll(testCaseId)
+      await refreshProgressSummary()
     } catch (error) {
       setTestingMessage(error.message)
     }
@@ -650,6 +685,7 @@ function App() {
       })
 
       scheduleNextCaseScroll(evidenceDialog.testCase.id)
+      await refreshProgressSummary()
       setTestCases((current) =>
         current.map((testCase) =>
           testCase.id === evidenceDialog.testCase.id
@@ -682,16 +718,35 @@ function App() {
             </div>
             <div className="select-list">
               {testRuns.map((testRun) => (
-                <button
-                  key={testRun.id}
-                  type="button"
-                  className={
-                    String(testRun.id) === selectedTestRunId ? 'is-selected' : ''
-                  }
-                  onClick={() => setSelectedTestRunId(String(testRun.id))}
-                >
-                  {testRun.name}
-                </button>
+                (() => {
+                  const caseCount = Number(testRun.case_count ?? 0)
+                  const completedCount = Number(testRun.completed_count ?? 0)
+                  const progressPercent = clampProgressPercent(
+                    completedCount,
+                    caseCount,
+                  )
+
+                  return (
+                    <button
+                      key={testRun.id}
+                      type="button"
+                      className={
+                        String(testRun.id) === selectedTestRunId
+                          ? 'is-selected'
+                          : ''
+                      }
+                      onClick={() => setSelectedTestRunId(String(testRun.id))}
+                    >
+                      <span>{testRun.name}</span>
+                      <div className="run-progress">
+                        <div className="run-progress-meter">
+                          <i style={{ width: `${progressPercent}%` }} />
+                        </div>
+                        <strong>{progressPercent}%</strong>
+                      </div>
+                    </button>
+                  )
+                })()
               ))}
               {testRuns.length === 0 && (
                 <p className="empty-message">등록된 진행명이 없습니다.</p>
@@ -705,20 +760,38 @@ function App() {
             </div>
             <div className="select-list">
               {scenarios.map((scenario) => (
-                <button
-                  key={scenario.id}
-                  type="button"
-                  className={
-                    String(scenario.id) === selectedScenarioId
-                      ? 'is-selected'
-                      : ''
-                  }
-                  onClick={() => setSelectedScenarioId(String(scenario.id))}
-                >
-                  <strong>{scenario.scenario_code}</strong>
-                  <span>{scenario.name}</span>
-                  <em>{scenario.case_count}건</em>
-                </button>
+                (() => {
+                  const caseCount = Number(scenario.case_count ?? 0)
+                  const completedCount = Number(scenario.completed_count ?? 0)
+                  const progressPercent = clampProgressPercent(
+                    completedCount,
+                    caseCount,
+                  )
+
+                  return (
+                    <button
+                      key={scenario.id}
+                      type="button"
+                      className={
+                        String(scenario.id) === selectedScenarioId
+                          ? 'is-selected'
+                          : ''
+                      }
+                      onClick={() => setSelectedScenarioId(String(scenario.id))}
+                    >
+                      <span>{scenario.name}</span>
+                      <div className="scenario-progress">
+                        <em>
+                          {completedCount} / {caseCount}건
+                        </em>
+                        <div className="scenario-progress-meter">
+                          <i style={{ width: `${progressPercent}%` }} />
+                        </div>
+                        <strong>{progressPercent}%</strong>
+                      </div>
+                    </button>
+                  )
+                })()
               ))}
               {selectedTestRunId && scenarios.length === 0 && (
                 <p className="empty-message">등록된 시나리오가 없습니다.</p>
