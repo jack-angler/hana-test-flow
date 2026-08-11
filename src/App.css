@@ -1820,13 +1820,6 @@ button.dashboard-stat:hover {
   background: currentColor;
   transform: rotate(-45deg);
 }
-  color: inherit;
-  font-family: Arial, sans-serif;
-  font-size: 22px;
-  font-weight: 400;
-  line-height: 1;
-  transform: translateY(-1px);
-}
 
 .close-button:hover {
   background: #f2faf8;
