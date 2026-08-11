@@ -13,6 +13,10 @@ return [
     'cors' => [
         'allowed_origins' => [
             'https://honeyangler.gtz.kr',
+            'http://test-flow.dvelop.kr',
+            'https://test-flow.dvelop.kr',
+            'http://test-flow.mkvelop.kr',
+            'https://test-flow.mkvelop.kr',
             'http://localhost:3000',
             'http://127.0.0.1:3000',
             'http://localhost:3003',

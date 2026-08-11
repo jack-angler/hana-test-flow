@@ -63,9 +63,17 @@ function json_input(): array
     return $decoded;
 }
 
-function user_role(string $loginId): string
+function user_role(string $loginId, int $organizationId): string
 {
-    return $loginId === 'admin' ? 'admin' : 'tester';
+    if ($loginId === 'admin') {
+        return 'admin';
+    }
+
+    if ($organizationId === 900) {
+        return 'project';
+    }
+
+    return 'tester';
 }
 
 function is_secure_request(): bool
@@ -127,7 +135,7 @@ function user_payload(array $user): array
         'organization' => $user['organization'],
         'name' => $user['name'],
         'login_id' => $user['login_id'],
-        'role' => user_role($user['login_id']),
+        'role' => user_role($user['login_id'], (int)$user['organization_id']),
     ];
 }
 
@@ -231,7 +239,14 @@ function session_user(): ?array
 {
     start_app_session();
 
-    return $_SESSION['user'] ?? try_remember_login();
+    $user = $_SESSION['user'] ?? try_remember_login();
+
+    if (is_array($user)) {
+        $user['role'] = user_role((string)$user['login_id'], (int)$user['organization_id']);
+        $_SESSION['user'] = $user;
+    }
+
+    return $user;
 }
 
 function require_user(): array

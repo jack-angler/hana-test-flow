@@ -91,7 +91,7 @@ try {
             'organization' => $organization['name'],
             'name' => $name,
             'login_id' => $loginId,
-            'role' => user_role($loginId),
+            'role' => user_role($loginId, $organizationId),
         ],
     ], 201);
 } catch (Throwable $exception) {

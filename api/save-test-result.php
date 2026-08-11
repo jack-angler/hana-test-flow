@@ -23,6 +23,7 @@ $defectSummary = trim((string)($input['defect_summary'] ?? ''));
 $estimateNumber = trim((string)($input['estimate_number'] ?? ''));
 $targetLoginId = trim((string)($input['target_login_id'] ?? ''));
 $evidenceMemo = trim((string)($input['evidence_memo'] ?? $actualResult));
+$submissionMode = trim((string)($input['submission_mode'] ?? 'test'));
 $retainedEvidenceIds = evidence_id_list($input['retained_evidence_ids'] ?? []);
 $allowedStatuses = ['passed', 'failed', 'improvement', 'not_available'];
 $evidenceStatuses = ['failed', 'improvement', 'not_available'];
@@ -45,10 +46,17 @@ try {
     $pdo = db();
     $pdo->beginTransaction();
 
-    $caseStmt = $pdo->prepare('SELECT id FROM test_cases WHERE id = ? AND is_current = 1 AND is_deleted = 0');
+    $caseStmt = $pdo->prepare(
+        'SELECT id, case_code, name
+         FROM test_cases
+         WHERE id = ?
+           AND is_current = 1
+           AND is_deleted = 0'
+    );
     $caseStmt->execute([$testCaseId]);
+    $testCase = $caseStmt->fetch();
 
-    if ($caseStmt->fetch() === false) {
+    if ($testCase === false) {
         $pdo->rollBack();
         json_response([
             'success' => false,
@@ -193,6 +201,22 @@ try {
         }
     }
 
+    if (in_array($resultStatus, $evidenceStatuses, true)) {
+        upsert_defect($pdo, [
+            'result_id' => $resultId,
+            'history_id' => $historyId,
+            'case_id' => $testCaseId,
+            'case_code' => (string)$testCase['case_code'],
+            'case_name' => (string)$testCase['name'],
+            'user_id' => (int)$user['id'],
+            'organization_id' => (int)$user['organization_id'],
+            'result_status' => $resultStatus,
+            'description' => $evidenceMemo !== '' ? $evidenceMemo : $actualResult,
+            'summary' => $defectSummary,
+            'force_reopen' => $submissionMode === 'redefect',
+        ]);
+    }
+
     $pdo->commit();
 
     json_response([
@@ -239,6 +263,142 @@ function normalize_uploaded_files(?array $files): array
     }
 
     return $normalized;
+}
+
+function upsert_defect(PDO $pdo, array $defect): void
+{
+    $title = trim((string)($defect['summary'] ?? ''));
+
+    if ($title === '') {
+        $title = sprintf(
+            '[%s] %s',
+            (string)$defect['case_code'],
+            (string)$defect['case_name']
+        );
+    }
+
+    $existingStmt = $pdo->prepare(
+        'SELECT id, status, assignee_user_id, action_completed_at, verified_at
+         FROM defects
+         WHERE test_case_result_id = ?'
+    );
+    $existingStmt->execute([(int)$defect['result_id']]);
+    $existing = $existingStmt->fetch();
+
+    if ($existing === false) {
+        $insertStmt = $pdo->prepare(
+            'INSERT INTO defects (
+                test_case_result_id, test_case_result_history_id, test_case_id,
+                reporter_user_id, reporter_organization_id, result_status,
+                status, title, description
+             ) VALUES (?, ?, ?, ?, ?, ?, "received", ?, ?)'
+        );
+        $insertStmt->execute([
+            (int)$defect['result_id'],
+            (int)$defect['history_id'],
+            (int)$defect['case_id'],
+            (int)$defect['user_id'],
+            (int)$defect['organization_id'],
+            (string)$defect['result_status'],
+            $title,
+            trim((string)$defect['description']) === '' ? null : trim((string)$defect['description']),
+        ]);
+
+        $defectId = (int)$pdo->lastInsertId();
+        insert_defect_status_history($pdo, $defectId, (int)$defect['user_id'], null, 'received');
+        insert_defect_action($pdo, $defectId, (int)$defect['user_id'], 'received', null, 'received', '결함이 접수되었습니다.');
+        return;
+    }
+
+    $rawCurrentStatus = (string)$existing['status'];
+    $allowedTransitionStatuses = ['received', 'assigned', 'action_completed', 'tester_confirmation_pending', 'verification_completed'];
+    $currentStatus = in_array($rawCurrentStatus, $allowedTransitionStatuses, true) ? $rawCurrentStatus : null;
+    $isReopened =
+        (bool)($defect['force_reopen'] ?? false)
+        || in_array($rawCurrentStatus, ['action_completed', 'tester_confirmation_pending', 'verification_completed'], true)
+        || ($existing['action_completed_at'] ?? null) !== null
+        || ($existing['verified_at'] ?? null) !== null;
+    $nextStatus = $isReopened
+        ? (((int)($existing['assignee_user_id'] ?? 0) > 0) ? 'assigned' : 'received')
+        : ($currentStatus ?? 'received');
+    $description = trim((string)$defect['description']) === '' ? null : trim((string)$defect['description']);
+
+    if ($isReopened) {
+        $updateStmt = $pdo->prepare(
+            'UPDATE defects
+             SET test_case_result_history_id = ?,
+                 result_status = ?,
+                 status = ?,
+                 title = ?,
+                 description = ?,
+                 action_memo = NULL,
+                 action_completed_by_user_id = NULL,
+                 action_completed_at = NULL,
+                 verified_by_user_id = NULL,
+                 verified_at = NULL,
+                 updated_at = CURRENT_TIMESTAMP
+             WHERE id = ?'
+        );
+        $updateStmt->execute([
+            (int)$defect['history_id'],
+            (string)$defect['result_status'],
+            $nextStatus,
+            $title,
+            $description,
+            (int)$existing['id'],
+        ]);
+    } else {
+        $updateStmt = $pdo->prepare(
+            'UPDATE defects
+             SET test_case_result_history_id = ?,
+                 result_status = ?,
+                 status = ?,
+                 title = ?,
+                 description = ?,
+                 updated_at = CURRENT_TIMESTAMP
+             WHERE id = ?'
+        );
+        $updateStmt->execute([
+            (int)$defect['history_id'],
+            (string)$defect['result_status'],
+            $nextStatus,
+            $title,
+            $description,
+            (int)$existing['id'],
+        ]);
+    }
+
+    if ($nextStatus !== $currentStatus) {
+        insert_defect_status_history($pdo, (int)$existing['id'], (int)$defect['user_id'], $currentStatus, $nextStatus);
+        insert_defect_action($pdo, (int)$existing['id'], (int)$defect['user_id'], $nextStatus, $currentStatus, $nextStatus, '재결함으로 다시 등록되어 담당자 지정 상태로 변경되었습니다.');
+    }
+}
+
+function insert_defect_status_history(PDO $pdo, int $defectId, int $userId, ?string $fromStatus, string $toStatus): void
+{
+    $stmt = $pdo->prepare(
+        'INSERT INTO defect_status_histories (
+            defect_id, changed_by_user_id, from_status, to_status
+         ) VALUES (?, ?, ?, ?)'
+    );
+    $stmt->execute([$defectId, $userId, $fromStatus, $toStatus]);
+}
+
+function insert_defect_action(
+    PDO $pdo,
+    int $defectId,
+    int $userId,
+    string $actionType,
+    ?string $fromStatus,
+    ?string $toStatus,
+    ?string $comment
+): void {
+    $stmt = $pdo->prepare(
+        'INSERT INTO defect_actions (
+            defect_id, user_id, action_type, from_status, to_status, comment
+         ) VALUES (?, ?, ?, ?, ?, ?)'
+    );
+    $stmt->execute([$defectId, $userId, $actionType, $fromStatus, $toStatus, $comment]);
 }
 
 function evidence_id_list(mixed $value): array
