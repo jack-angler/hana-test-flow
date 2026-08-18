@@ -5,9 +5,9 @@ import HelpContent from "./components/HelpContent";
 import { apiRequest, apiUrl } from "./lib/api";
 
 const testLoginAccounts = [
-  { loginId: "P260511", password: "capital1!", label: "P260511" },
-  { loginId: "admin", password: "capital1!", label: "admin" },
-  { loginId: "nicecast", password: "0000", label: "nicecast" },
+  { loginId: "P260511", label: "P260511" },
+  { loginId: "admin", label: "admin" },
+  { loginId: "nicecast", label: "nicecast" },
 ];
 
 function App() {
@@ -16,6 +16,9 @@ function App() {
   const [isCheckingSession, setIsCheckingSession] = useState(true);
   const [testLoginMessage, setTestLoginMessage] = useState("");
   const [testLoginLoadingId, setTestLoginLoadingId] = useState("");
+  const [testLoginUsers, setTestLoginUsers] = useState([]);
+  const [selectedTestLoginUserId, setSelectedTestLoginUserId] = useState("");
+  const [isLoadingTestLoginUsers, setIsLoadingTestLoginUsers] = useState(false);
   const [loginForm, setLoginForm] = useState({
     loginId: "",
     password: "",
@@ -278,6 +281,33 @@ function App() {
 
     checkSession();
   }, []);
+
+  useEffect(() => {
+    if (!isTestLoginPath) {
+      return;
+    }
+
+    const loadTestLoginUsers = async () => {
+      setIsLoadingTestLoginUsers(true);
+      setTestLoginMessage("");
+
+      try {
+        const result = await apiRequest("/test-login.php");
+        const users = result.users ?? [];
+
+        setTestLoginUsers(users);
+        setSelectedTestLoginUserId((current) =>
+          current || String(users[0]?.id ?? ""),
+        );
+      } catch (error) {
+        setTestLoginMessage(error.message);
+      } finally {
+        setIsLoadingTestLoginUsers(false);
+      }
+    };
+
+    loadTestLoginUsers();
+  }, [isTestLoginPath]);
 
   useEffect(() => {
     if (!currentUser || activeMenu !== "testing") {
@@ -588,15 +618,15 @@ function App() {
 
   const loginWithTestAccount = async (account) => {
     setTestLoginMessage("");
-    setTestLoginLoadingId(account.loginId);
+    const loadingId = account.loginId ?? String(account.id ?? "");
+    setTestLoginLoadingId(loadingId);
 
     try {
-      const result = await apiRequest("/login.php", {
+      const result = await apiRequest("/test-login.php", {
         method: "POST",
         body: JSON.stringify({
-          login_id: account.loginId,
-          password: account.password,
-          remember_me: false,
+          user_id: account.id ?? undefined,
+          login_id: account.loginId ?? undefined,
         }),
       });
 
@@ -608,6 +638,19 @@ function App() {
     } finally {
       setTestLoginLoadingId("");
     }
+  };
+
+  const loginWithSelectedTestAccount = () => {
+    const selectedUser = testLoginUsers.find(
+      (user) => String(user.id) === selectedTestLoginUserId,
+    );
+
+    if (!selectedUser) {
+      setTestLoginMessage("로그인할 계정을 선택해주세요.");
+      return;
+    }
+
+    loginWithTestAccount(selectedUser);
   };
 
   const logout = async () => {
@@ -2906,6 +2949,41 @@ function App() {
                 </span>
               </button>
             ))}
+          </div>
+
+          <div className="test-login-select-box">
+            <label>
+              <span>전체 계정 선택</span>
+              <select
+                value={selectedTestLoginUserId}
+                disabled={isLoadingTestLoginUsers || testLoginLoadingId !== ""}
+                onChange={(event) =>
+                  setSelectedTestLoginUserId(event.target.value)
+                }
+              >
+                <option value="">
+                  {isLoadingTestLoginUsers
+                    ? "계정 불러오는 중"
+                    : "계정을 선택해주세요"}
+                </option>
+                {testLoginUsers.map((user) => (
+                  <option key={user.id} value={user.id}>
+                    {user.organization} / {user.name} ({user.login_id})
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <button
+              type="button"
+              className="primary-button"
+              disabled={
+                selectedTestLoginUserId === "" || testLoginLoadingId !== ""
+              }
+              onClick={loginWithSelectedTestAccount}
+            >
+              선택 계정으로 로그인
+            </button>
           </div>
 
           {testLoginMessage && (

@@ -61,6 +61,41 @@
         gap: 10px;
       }
 
+      .select-box {
+        margin-top: 22px;
+        padding-top: 20px;
+        border-top: 1px solid rgba(0, 117, 100, 0.14);
+      }
+
+      label {
+        display: block;
+        margin-bottom: 12px;
+      }
+
+      label span {
+        display: block;
+        margin-bottom: 8px;
+        color: #314b47;
+        font-size: 14px;
+        font-weight: 700;
+      }
+
+      select {
+        width: 100%;
+        height: 48px;
+        border: 1px solid #c9d9d6;
+        border-radius: 6px;
+        padding: 0 14px;
+        color: #092f2a;
+        background: #fbfdfc;
+        font-size: 15px;
+      }
+
+      select:focus {
+        border-color: #00856f;
+        outline: 3px solid rgba(0, 133, 111, 0.16);
+      }
+
       .account {
         width: 100%;
         min-height: 58px;
@@ -124,6 +159,19 @@
       </div>
 
       <div class="accounts" id="accounts"></div>
+
+      <div class="select-box">
+        <label>
+          <span>전체 계정 선택</span>
+          <select id="userSelect">
+            <option value="">계정 불러오는 중</option>
+          </select>
+        </label>
+        <button type="button" class="account" id="selectLogin">
+          <strong>선택 계정</strong><span>로그인</span>
+        </button>
+      </div>
+
       <p class="message" id="message" hidden></p>
 
       <button type="button" class="link" id="normalLogin">
@@ -134,13 +182,15 @@
     <script>
       const API_BASE_URL = "https://honeyangler.gtz.kr/app/hana-test-flow/api";
       const accounts = [
-        { loginId: "P260511", password: "capital1!", label: "P260511" },
-        { loginId: "admin", password: "capital1!", label: "admin" },
-        { loginId: "nicecast", password: "0000", label: "nicecast" },
+        { loginId: "P260511", label: "P260511" },
+        { loginId: "admin", label: "admin" },
+        { loginId: "nicecast", label: "nicecast" },
       ];
       const accountsEl = document.querySelector("#accounts");
       const messageEl = document.querySelector("#message");
       const normalLoginEl = document.querySelector("#normalLogin");
+      const userSelectEl = document.querySelector("#userSelect");
+      const selectLoginEl = document.querySelector("#selectLogin");
 
       const setMessage = (message) => {
         messageEl.hidden = !message;
@@ -153,21 +203,24 @@
           button.querySelector("span").textContent =
             button.dataset.loginId === loginId ? "로그인 중" : "클릭해서 로그인";
         });
+        selectLoginEl.querySelector("span").textContent =
+          loginId === "selected" ? "로그인 중" : "로그인";
+        userSelectEl.disabled = loginId !== "";
       };
 
       const login = async (account) => {
         setMessage("");
-        setLoading(account.loginId);
+        const loadingId = account.loginId ?? "selected";
+        setLoading(loadingId);
 
         try {
-          const response = await fetch(`${API_BASE_URL}/login.php`, {
+          const response = await fetch(`${API_BASE_URL}/test-login.php`, {
             method: "POST",
             credentials: "include",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
+              user_id: account.id,
               login_id: account.loginId,
-              password: account.password,
-              remember_me: false,
             }),
           });
           const data = await response.json().catch(() => null);
@@ -184,6 +237,32 @@
         }
       };
 
+      const loadUsers = async () => {
+        try {
+          const response = await fetch(`${API_BASE_URL}/test-login.php`, {
+            credentials: "include",
+          });
+          const data = await response.json().catch(() => null);
+
+          if (!response.ok) {
+            throw new Error(data?.message ?? "계정 목록을 불러오지 못했습니다.");
+          }
+
+          userSelectEl.innerHTML =
+            '<option value="">계정을 선택해주세요</option>';
+          (data.users ?? []).forEach((user) => {
+            const option = document.createElement("option");
+            option.value = user.id;
+            option.textContent = `${user.organization} / ${user.name} (${user.login_id})`;
+            userSelectEl.appendChild(option);
+          });
+        } catch (error) {
+          userSelectEl.innerHTML =
+            '<option value="">계정 목록 로딩 실패</option>';
+          setMessage(error.message);
+        }
+      };
+
       accounts.forEach((account) => {
         const button = document.createElement("button");
         button.type = "button";
@@ -194,9 +273,20 @@
         accountsEl.appendChild(button);
       });
 
+      selectLoginEl.addEventListener("click", () => {
+        if (!userSelectEl.value) {
+          setMessage("로그인할 계정을 선택해주세요.");
+          return;
+        }
+
+        login({ id: Number(userSelectEl.value) });
+      });
+
       normalLoginEl.addEventListener("click", () => {
         window.location.href = "../";
       });
+
+      loadUsers();
     </script>
   </body>
 </html>

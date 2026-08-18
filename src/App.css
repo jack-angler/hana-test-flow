@@ -1642,6 +1642,41 @@ button.dashboard-stat:hover {
   font-weight: 800;
 }
 
+.test-login-select-box {
+  margin-top: 22px;
+  padding-top: 20px;
+  border-top: 1px solid rgba(0, 117, 100, 0.14);
+}
+
+.test-login-select-box label {
+  display: block;
+  margin-bottom: 12px;
+}
+
+.test-login-select-box label span {
+  display: block;
+  margin-bottom: 8px;
+  color: #314b47;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.test-login-select-box select {
+  width: 100%;
+  height: 48px;
+  border: 1px solid #c9d9d6;
+  border-radius: 6px;
+  padding: 0 14px;
+  color: #092f2a;
+  background: #fbfdfc;
+  font-size: 15px;
+}
+
+.test-login-select-box select:focus {
+  border-color: #00856f;
+  outline: 3px solid rgba(0, 133, 111, 0.16);
+}
+
 .brand {
   display: flex;
   align-items: flex-start;
