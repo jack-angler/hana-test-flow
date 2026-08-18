@@ -12,6 +12,14 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST') {
 }
 
 $user = require_user();
+
+if (!can_submit_test_result($user)) {
+    json_response([
+        'success' => false,
+        'message' => '테스터만 테스트 결과를 등록할 수 있습니다.',
+    ], 403);
+}
+
 $contentType = (string)($_SERVER['CONTENT_TYPE'] ?? $_SERVER['HTTP_CONTENT_TYPE'] ?? '');
 $isMultipart = stripos($contentType, 'multipart/form-data') === 0 || !empty($_POST) || !empty($_FILES);
 $input = $isMultipart ? $_POST : json_input();
@@ -45,6 +53,7 @@ if ($testCaseId < 1 || !in_array($resultStatus, $allowedStatuses, true)) {
 try {
     $pdo = db();
     $pdo->beginTransaction();
+    $newDefectId = null;
 
     $caseStmt = $pdo->prepare(
         'SELECT id, case_code, name
@@ -202,7 +211,7 @@ try {
     }
 
     if (in_array($resultStatus, $evidenceStatuses, true)) {
-        upsert_defect($pdo, [
+        $newDefectId = upsert_defect($pdo, [
             'result_id' => $resultId,
             'history_id' => $historyId,
             'case_id' => $testCaseId,
@@ -218,6 +227,10 @@ try {
     }
 
     $pdo->commit();
+
+    if ($newDefectId !== null) {
+        notify_new_defect($pdo, $newDefectId);
+    }
 
     json_response([
         'success' => true,
@@ -265,7 +278,7 @@ function normalize_uploaded_files(?array $files): array
     return $normalized;
 }
 
-function upsert_defect(PDO $pdo, array $defect): void
+function upsert_defect(PDO $pdo, array $defect): ?int
 {
     $title = trim((string)($defect['summary'] ?? ''));
 
@@ -307,7 +320,7 @@ function upsert_defect(PDO $pdo, array $defect): void
         $defectId = (int)$pdo->lastInsertId();
         insert_defect_status_history($pdo, $defectId, (int)$defect['user_id'], null, 'received');
         insert_defect_action($pdo, $defectId, (int)$defect['user_id'], 'received', null, 'received', '결함이 접수되었습니다.');
-        return;
+        return $defectId;
     }
 
     $rawCurrentStatus = (string)$existing['status'];
@@ -372,6 +385,8 @@ function upsert_defect(PDO $pdo, array $defect): void
         insert_defect_status_history($pdo, (int)$existing['id'], (int)$defect['user_id'], $currentStatus, $nextStatus);
         insert_defect_action($pdo, (int)$existing['id'], (int)$defect['user_id'], $nextStatus, $currentStatus, $nextStatus, '재결함으로 다시 등록되어 담당자 지정 상태로 변경되었습니다.');
     }
+
+    return $isReopened ? (int)$existing['id'] : null;
 }
 
 function insert_defect_status_history(PDO $pdo, int $defectId, int $userId, ?string $fromStatus, string $toStatus): void

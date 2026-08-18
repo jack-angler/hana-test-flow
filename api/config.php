@@ -31,7 +31,11 @@ return [
         'remember_days' => 30,
     ],
     'mail' => [
-        'from' => 'no-reply@honeyangler.gtz.kr',
-        'from_name' => 'Learning with Tori',
+        'from' => 'no-reply@dvelop.kr',
+        'from_name' => '하나원큐오토 통합테스트',
+        'defect_recipients' => [
+            'aktkzlk@gmail.com',
+            'riscape90@gmail.com'
+        ],
     ],
 ];

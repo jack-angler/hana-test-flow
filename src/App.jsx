@@ -139,7 +139,9 @@ function App() {
   };
 
   const currentRoleLabel = roleLabels[currentUser?.role] ?? "테스터";
-  const isReadOnlyTesting = currentUser?.role === "admin";
+  const canSubmitTestResult =
+    currentUser?.role === "tester" || currentUser?.login_id === "P260513";
+  const isReadOnlyTesting = !canSubmitTestResult;
   const testerConfirmationPendingStatuses = [
     "action_completed",
     "tester_confirmation_pending",
@@ -151,7 +153,10 @@ function App() {
   const getDefectStatusLabel = (status, role = currentUser?.role) => {
     const normalizedStatus = normalizeDefectStatus(status);
 
-    if (normalizedStatus === "tester_confirmation_pending" && role === "tester") {
+    if (
+      normalizedStatus === "tester_confirmation_pending" &&
+      role === "tester"
+    ) {
       return "확인 필요";
     }
 
@@ -205,6 +210,14 @@ function App() {
     )} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
   };
 
+  const createClientId = () => {
+    if (typeof crypto !== "undefined" && crypto.randomUUID) {
+      return crypto.randomUUID();
+    }
+
+    return `${Date.now()}-${Math.random().toString(36).slice(2, 11)}`;
+  };
+
   const closeDialog = () => {
     setDialog({
       isOpen: false,
@@ -228,6 +241,7 @@ function App() {
       : currentUser?.role === "project"
         ? [
             { id: "dashboard", label: "대시보드" },
+            { id: "testing", label: "통합테스트" },
             { id: "defects", label: "결함 처리" },
             { id: "help", label: "도움말" },
           ]
@@ -798,7 +812,9 @@ function App() {
 
   const openReDefectDialog = (defect) => {
     if (!defect?.test_case_id) {
-      setDefectMessage("재결함을 등록할 테스트 케이스 정보를 찾을 수 없습니다.");
+      setDefectMessage(
+        "재결함을 등록할 테스트 케이스 정보를 찾을 수 없습니다.",
+      );
       return;
     }
 
@@ -827,7 +843,7 @@ function App() {
     }
 
     const nextFiles = imageFiles.map((file) => ({
-      id: `${Date.now()}-${crypto.randomUUID()}`,
+      id: createClientId(),
       file,
       isExisting: false,
       name: file.name || "clipboard-image.png",
@@ -947,7 +963,7 @@ function App() {
     }
 
     const nextFiles = imageFiles.map((file) => ({
-      id: `${Date.now()}-${crypto.randomUUID()}`,
+      id: createClientId(),
       file,
       isExisting: false,
       name: file.name || "clipboard-image.png",
@@ -994,10 +1010,8 @@ function App() {
     event.preventDefault();
 
     const title = manualDefectTitleRef.current?.value.trim() ?? "";
-    const manualLocation =
-      manualDefectLocationRef.current?.value.trim() ?? "";
-    const description =
-      manualDefectDescriptionRef.current?.value.trim() ?? "";
+    const manualLocation = manualDefectLocationRef.current?.value.trim() ?? "";
+    const description = manualDefectDescriptionRef.current?.value.trim() ?? "";
 
     if (title === "" || description === "") {
       setManualDefectDialog((current) => ({
@@ -1090,7 +1104,7 @@ function App() {
     }
 
     const nextFiles = imageFiles.map((file) => ({
-      id: `${Date.now()}-${crypto.randomUUID()}`,
+      id: createClientId(),
       file,
       isExisting: false,
       name: file.name || "clipboard-image.png",
@@ -1599,7 +1613,9 @@ function App() {
                       }
                     >
                       <span>조치완료</span>
-                      <strong>{statusCounts.tester_confirmation_pending}</strong>
+                      <strong>
+                        {statusCounts.tester_confirmation_pending}
+                      </strong>
                     </button>
                     <button
                       type="button"
@@ -1689,8 +1705,8 @@ function App() {
                       <em>
                         {(defect.defect_source ?? "test_case") === "manual"
                           ? defect.manual_location || "테스트 케이스 외"
-                          : `${defect.test_run_name} · ${defect.case_code}`} ·{" "}
-                        {defect.assignee_name || "담당자 미지정"}
+                          : `${defect.test_run_name} · ${defect.case_code}`}{" "}
+                        · {defect.assignee_name || "담당자 미지정"}
                       </em>
                     </div>
                     <span className="todo-action">
@@ -1839,7 +1855,9 @@ function App() {
                             ).toLocaleString()}
                           </td>
                           <td>{Number(run.total.scenario_percent)}%</td>
-                          <td>{Number(run.total.case_count).toLocaleString()}</td>
+                          <td>
+                            {Number(run.total.case_count).toLocaleString()}
+                          </td>
                           <td>
                             {Number(
                               run.total.all_completed_case_count,
@@ -1892,71 +1910,75 @@ function App() {
               <div className="run-progress-section">
                 <div className="dashboard-progress-table-wrap">
                   <table className="dashboard-progress-table is-team-compare">
-                  <caption>지점별 케이스 수행 실적</caption>
-                  <thead>
-                    <tr>
-                      <th rowSpan={2}>구분</th>
-                      <th rowSpan={2}>대상건수</th>
-                      <th className="new-car-header" colSpan={2}>
-                        신차사업팀
-                      </th>
-                      <th className="branch-header" colSpan={2}>
-                        지점
-                      </th>
-                    </tr>
-                    <tr>
-                      <th className="new-car-header">수행완료</th>
-                      <th className="new-car-header">수행률</th>
-                      <th className="branch-header">수행완료</th>
-                      <th className="branch-header">수행률</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {runProgress.runs.map((run) => (
-                      <tr key={`team-${run.id}`}>
-                        <th>{run.name}</th>
-                        <td>{Number(run.total.case_count).toLocaleString()}</td>
-                        <td>
-                          {Number(
-                            run.total.new_car_completed_case_count,
-                          ).toLocaleString()}
-                        </td>
-                        <td>{Number(run.total.new_car_case_percent)}%</td>
-                        <td>
-                          {Number(
-                            run.total.branch_completed_case_count,
-                          ).toLocaleString()}
-                        </td>
-                        <td>{Number(run.total.branch_case_percent)}%</td>
+                    <caption>지점별 케이스 수행 실적</caption>
+                    <thead>
+                      <tr>
+                        <th rowSpan={2}>구분</th>
+                        <th rowSpan={2}>대상건수</th>
+                        <th className="new-car-header" colSpan={2}>
+                          신차사업팀
+                        </th>
+                        <th className="branch-header" colSpan={2}>
+                          지점
+                        </th>
                       </tr>
-                    ))}
-                  </tbody>
-                  <tfoot>
-                    <tr>
-                      <th>계</th>
-                      <td>
-                        {Number(
-                          runProgress.total?.case_count ?? 0,
-                        ).toLocaleString()}
-                      </td>
-                      <td>
-                        {Number(
-                          runProgress.total?.new_car_completed_case_count ?? 0,
-                        ).toLocaleString()}
-                      </td>
-                      <td>
-                        {Number(runProgress.total?.new_car_case_percent ?? 0)}%
-                      </td>
-                      <td>
-                        {Number(
-                          runProgress.total?.branch_completed_case_count ?? 0,
-                        ).toLocaleString()}
-                      </td>
-                      <td>
-                        {Number(runProgress.total?.branch_case_percent ?? 0)}%
-                      </td>
-                    </tr>
-                  </tfoot>
+                      <tr>
+                        <th className="new-car-header">수행완료</th>
+                        <th className="new-car-header">수행률</th>
+                        <th className="branch-header">수행완료</th>
+                        <th className="branch-header">수행률</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {runProgress.runs.map((run) => (
+                        <tr key={`team-${run.id}`}>
+                          <th>{run.name}</th>
+                          <td>
+                            {Number(run.total.case_count).toLocaleString()}
+                          </td>
+                          <td>
+                            {Number(
+                              run.total.new_car_completed_case_count,
+                            ).toLocaleString()}
+                          </td>
+                          <td>{Number(run.total.new_car_case_percent)}%</td>
+                          <td>
+                            {Number(
+                              run.total.branch_completed_case_count,
+                            ).toLocaleString()}
+                          </td>
+                          <td>{Number(run.total.branch_case_percent)}%</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                    <tfoot>
+                      <tr>
+                        <th>계</th>
+                        <td>
+                          {Number(
+                            runProgress.total?.case_count ?? 0,
+                          ).toLocaleString()}
+                        </td>
+                        <td>
+                          {Number(
+                            runProgress.total?.new_car_completed_case_count ??
+                              0,
+                          ).toLocaleString()}
+                        </td>
+                        <td>
+                          {Number(runProgress.total?.new_car_case_percent ?? 0)}
+                          %
+                        </td>
+                        <td>
+                          {Number(
+                            runProgress.total?.branch_completed_case_count ?? 0,
+                          ).toLocaleString()}
+                        </td>
+                        <td>
+                          {Number(runProgress.total?.branch_case_percent ?? 0)}%
+                        </td>
+                      </tr>
+                    </tfoot>
                   </table>
                 </div>
               </div>
@@ -2011,9 +2033,17 @@ function App() {
                       <td>{Number(run.total_count).toLocaleString()}</td>
                       <td>{Number(run.not_started_count).toLocaleString()}</td>
                       <td>{Number(run.in_progress_count).toLocaleString()}</td>
-                      <td>{Number(run.action_completed_count).toLocaleString()}</td>
+                      <td>
+                        {Number(run.action_completed_count).toLocaleString()}
+                      </td>
                       <td>{Number(run.action_percent)}%</td>
-                      <td>{Number(run.verification_target_count ?? run.action_completed_count ?? 0).toLocaleString()}</td>
+                      <td>
+                        {Number(
+                          run.verification_target_count ??
+                            run.action_completed_count ??
+                            0,
+                        ).toLocaleString()}
+                      </td>
                       <td>{Number(run.verified_count).toLocaleString()}</td>
                       <td>{Number(run.verification_percent)}%</td>
                     </tr>
@@ -2022,22 +2052,69 @@ function App() {
                 <tfoot>
                   <tr>
                     <th>계</th>
-                    <td>{Number(defectActionProgress.total?.failed_count ?? 0).toLocaleString()}</td>
-                    <td>{Number(defectActionProgress.total?.improvement_count ?? 0).toLocaleString()}</td>
-                    <td>{Number(defectActionProgress.total?.non_defect_count ?? 0).toLocaleString()}</td>
-                    <td>{Number(defectActionProgress.total?.total_count ?? 0).toLocaleString()}</td>
-                    <td>{Number(defectActionProgress.total?.not_started_count ?? 0).toLocaleString()}</td>
-                    <td>{Number(defectActionProgress.total?.in_progress_count ?? 0).toLocaleString()}</td>
-                    <td>{Number(defectActionProgress.total?.action_completed_count ?? 0).toLocaleString()}</td>
-                    <td>{Number(defectActionProgress.total?.action_percent ?? 0)}%</td>
-                    <td>{Number(defectActionProgress.total?.verification_target_count ?? defectActionProgress.total?.action_completed_count ?? 0).toLocaleString()}</td>
-                    <td>{Number(defectActionProgress.total?.verified_count ?? 0).toLocaleString()}</td>
-                    <td>{Number(defectActionProgress.total?.verification_percent ?? 0)}%</td>
+                    <td>
+                      {Number(
+                        defectActionProgress.total?.failed_count ?? 0,
+                      ).toLocaleString()}
+                    </td>
+                    <td>
+                      {Number(
+                        defectActionProgress.total?.improvement_count ?? 0,
+                      ).toLocaleString()}
+                    </td>
+                    <td>
+                      {Number(
+                        defectActionProgress.total?.non_defect_count ?? 0,
+                      ).toLocaleString()}
+                    </td>
+                    <td>
+                      {Number(
+                        defectActionProgress.total?.total_count ?? 0,
+                      ).toLocaleString()}
+                    </td>
+                    <td>
+                      {Number(
+                        defectActionProgress.total?.not_started_count ?? 0,
+                      ).toLocaleString()}
+                    </td>
+                    <td>
+                      {Number(
+                        defectActionProgress.total?.in_progress_count ?? 0,
+                      ).toLocaleString()}
+                    </td>
+                    <td>
+                      {Number(
+                        defectActionProgress.total?.action_completed_count ?? 0,
+                      ).toLocaleString()}
+                    </td>
+                    <td>
+                      {Number(defectActionProgress.total?.action_percent ?? 0)}%
+                    </td>
+                    <td>
+                      {Number(
+                        defectActionProgress.total?.verification_target_count ??
+                          defectActionProgress.total?.action_completed_count ??
+                          0,
+                      ).toLocaleString()}
+                    </td>
+                    <td>
+                      {Number(
+                        defectActionProgress.total?.verified_count ?? 0,
+                      ).toLocaleString()}
+                    </td>
+                    <td>
+                      {Number(
+                        defectActionProgress.total?.verification_percent ?? 0,
+                      )}
+                      %
+                    </td>
                   </tr>
                 </tfoot>
               </table>
               {defectActionProgress.runs.length === 0 && (
-                <p className="empty-message">표시할 결함조치 현황이 없습니다.</p>
+                <p className="empty-message">
+                  표시할 결함조치 현황이 없습니다.
+                </p>
               )}
             </div>
           </div>
@@ -2057,9 +2134,13 @@ function App() {
                     {scenarios.map((scenario) => (
                       <div key={scenario.id}>
                         <strong>{scenario.name}</strong>
-                        <span>{scenario.result_count.toLocaleString()}건 수행</span>
+                        <span>
+                          {scenario.result_count.toLocaleString()}건 수행
+                        </span>
                         <span>{scenario.success_percent}% 성공</span>
-                        <span>{scenario.defect_count.toLocaleString()}건 결함</span>
+                        <span>
+                          {scenario.defect_count.toLocaleString()}건 결함
+                        </span>
                       </div>
                     ))}
                   </div>
@@ -2191,39 +2272,39 @@ function App() {
                     }}
                     tabIndex={-1}
                     className={`case-item result-${testCase.result_status}`}
-                    >
-                      <div className="case-title">
-                        <strong>{testCase.case_code}</strong>
-                        {!isReadOnlyTesting && (
-                          <span>{isNotTested ? "미수행" : "수행완료"}</span>
-                        )}
-                      </div>
-                      <h3>{testCase.name}</h3>
+                  >
+                    <div className="case-title">
+                      <strong>{testCase.case_code}</strong>
                       {!isReadOnlyTesting && (
-                        <div
-                          className="result-buttons"
-                          aria-label="테스트 결과 선택"
-                        >
-                          {resultOptions.map((option) => (
-                            <button
-                              key={option.value}
-                              type="button"
-                              className={
-                                testCase.result_status === option.value
-                                  ? "is-selected"
-                                  : ""
-                              }
-                              onClick={() =>
-                                evidenceStatuses.includes(option.value)
-                                  ? openEvidenceDialog(testCase, option.value)
-                                  : saveTestResult(testCase.id, option.value)
-                              }
-                            >
-                              {option.label}
-                            </button>
-                          ))}
-                        </div>
+                        <span>{isNotTested ? "미수행" : "수행완료"}</span>
                       )}
+                    </div>
+                    <h3>{testCase.name}</h3>
+                    {!isReadOnlyTesting && (
+                      <div
+                        className="result-buttons"
+                        aria-label="테스트 결과 선택"
+                      >
+                        {resultOptions.map((option) => (
+                          <button
+                            key={option.value}
+                            type="button"
+                            className={
+                              testCase.result_status === option.value
+                                ? "is-selected"
+                                : ""
+                            }
+                            onClick={() =>
+                              evidenceStatuses.includes(option.value)
+                                ? openEvidenceDialog(testCase, option.value)
+                                : saveTestResult(testCase.id, option.value)
+                            }
+                          >
+                            {option.label}
+                          </button>
+                        ))}
+                      </div>
+                    )}
                     <dl>
                       <div>
                         <dt>메뉴</dt>
@@ -2257,13 +2338,15 @@ function App() {
               <p className="form-message is-error">{testingMessage}</p>
             )}
           </div>
-          <button
-            type="button"
-            className="floating-defect-button"
-            onClick={openManualDefectDialog}
-          >
-            결함 직접 등록
-          </button>
+          {!isReadOnlyTesting && (
+            <button
+              type="button"
+              className="floating-defect-button"
+              onClick={openManualDefectDialog}
+            >
+              결함 직접 등록
+            </button>
+          )}
         </section>
       );
     }
@@ -2320,7 +2403,7 @@ function App() {
         ? (selectedDefect?.action_images ?? []).filter(
             (image) => image.action_type === "received",
           )
-        : selectedDefect?.evidence?.images ?? [];
+        : (selectedDefect?.evidence?.images ?? []);
       const selectedActionImages = (selectedDefect?.action_images ?? []).filter(
         (image) => image.action_type !== "received",
       );
@@ -2387,9 +2470,7 @@ function App() {
                 <p className="empty-message">등록된 결함이 없습니다.</p>
               )}
               {defects.length > 0 && filteredDefects.length === 0 && (
-                <p className="empty-message">
-                  선택한 상태의 결함이 없습니다.
-                </p>
+                <p className="empty-message">선택한 상태의 결함이 없습니다.</p>
               )}
               {filteredDefects.length > 0 && (
                 <div className="defect-list-footer">
@@ -3077,7 +3158,9 @@ function App() {
                 }}
               >
                 <strong>증빙 이미지 첨부</strong>
-                <span>파일을 끌어오거나 캡처 이미지를 붙여넣으세요(Ctrl + V)</span>
+                <span>
+                  파일을 끌어오거나 캡처 이미지를 붙여넣으세요(Ctrl + V)
+                </span>
                 <button
                   type="button"
                   className="secondary-button"
@@ -3196,9 +3279,14 @@ function App() {
     <main className="app-shell">
       <form className="login-box" onSubmit={submitLogin}>
         <div className="brand">
+          {" "}
+          <img
+            style={{ width: "50px" }}
+            src={`${import.meta.env.BASE_URL}hana-ci.svg`}
+            alt=""
+          />
           <p className="brand-name">
-            하나원큐오토 웹기반 플랫폼 구축
-            <span>통합테스트</span>
+            하나원큐오토<span>웹기반 플랫폼 구축</span>
           </p>
         </div>
 

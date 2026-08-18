@@ -485,8 +485,9 @@ function update_defect(array $user): void
         $pdo->beginTransaction();
 
         if ($action === 'create_manual') {
-            create_manual_defect($pdo, $user, $input);
+            $newDefectId = create_manual_defect($pdo, $user, $input);
             $pdo->commit();
+            notify_new_defect($pdo, $newDefectId);
 
             json_response([
                 'success' => true,
@@ -519,10 +520,12 @@ function update_defect(array $user): void
             ], 404);
         }
 
+        $reopenedDefectId = null;
+
         match ($action) {
             'assign' => assign_defect($pdo, $user, $defect, $input),
             'complete_action' => complete_action($pdo, $user, $defect, $input),
-            'reopen_manual' => reopen_manual_defect($pdo, $user, $defect, $input),
+            'reopen_manual' => $reopenedDefectId = reopen_manual_defect($pdo, $user, $defect, $input),
             'verify' => verify_defect($pdo, $user, $defect),
             default => json_response([
                 'success' => false,
@@ -531,6 +534,10 @@ function update_defect(array $user): void
         };
 
         $pdo->commit();
+
+        if ($action === 'reopen_manual' && is_int($reopenedDefectId)) {
+            notify_new_defect($pdo, $reopenedDefectId);
+        }
 
         json_response([
             'success' => true,
@@ -549,9 +556,9 @@ function update_defect(array $user): void
     }
 }
 
-function create_manual_defect(PDO $pdo, array $user, array $input): void
+function create_manual_defect(PDO $pdo, array $user, array $input): int
 {
-    if (($user['role'] ?? '') !== 'tester') {
+    if (!can_submit_test_result($user)) {
         json_response([
             'success' => false,
             'message' => '寃고븿 吏곸젒 ?깅줉???뚯뒪?곕쭔 ?????덉뒿?덈떎.',
@@ -605,9 +612,11 @@ function create_manual_defect(PDO $pdo, array $user, array $input): void
         'user_id' => (int)$user['id'],
         'source_type' => ((string)($input['source_type'] ?? 'file')) === 'clipboard' ? 'clipboard' : 'file',
     ]);
+
+    return $defectId;
 }
 
-function reopen_manual_defect(PDO $pdo, array $user, array $defect, array $input): void
+function reopen_manual_defect(PDO $pdo, array $user, array $defect, array $input): int
 {
     $isReporter = (int)$defect['reporter_user_id'] === (int)$user['id'];
 
@@ -708,6 +717,8 @@ function reopen_manual_defect(PDO $pdo, array $user, array $defect, array $input
         'user_id' => (int)$user['id'],
         'source_type' => ((string)($input['source_type'] ?? 'file')) === 'clipboard' ? 'clipboard' : 'file',
     ]);
+
+    return (int)$defect['id'];
 }
 
 function assign_defect(PDO $pdo, array $user, array $defect, array $input): void

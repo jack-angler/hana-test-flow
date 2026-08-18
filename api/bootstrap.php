@@ -76,6 +76,122 @@ function user_role(string $loginId, int $organizationId): string
     return 'tester';
 }
 
+function result_aggregation_excluded_login_ids(): array
+{
+    return ['P260513'];
+}
+
+function can_submit_test_result(array $user): bool
+{
+    return ($user['role'] ?? '') === 'tester'
+        || in_array((string)($user['login_id'] ?? ''), result_aggregation_excluded_login_ids(), true);
+}
+
+function notify_new_defect(PDO $pdo, int $defectId): void
+{
+    $recipients = app_config('mail')['defect_recipients'] ?? [];
+
+    if (!is_array($recipients) || $recipients === []) {
+        return;
+    }
+
+    $stmt = $pdo->prepare(
+        'SELECT
+            d.id,
+            d.result_status,
+            d.defect_source,
+            d.manual_location,
+            d.title,
+            d.description,
+            d.created_at,
+            reporter.name AS reporter_name,
+            reporter.login_id AS reporter_login_id,
+            reporter_org.name AS reporter_organization,
+            tc.case_code,
+            tc.name AS case_name,
+            ts.name AS scenario_name,
+            tr.name AS test_run_name
+         FROM defects d
+         INNER JOIN users reporter ON reporter.id = d.reporter_user_id
+         INNER JOIN organizations reporter_org ON reporter_org.id = d.reporter_organization_id
+         LEFT JOIN test_cases tc ON tc.id = d.test_case_id
+         LEFT JOIN test_scenarios ts ON ts.id = tc.test_scenario_id
+         LEFT JOIN test_runs tr ON tr.id = ts.test_run_id
+         WHERE d.id = ?'
+    );
+    $stmt->execute([$defectId]);
+    $defect = $stmt->fetch();
+
+    if ($defect === false) {
+        return;
+    }
+
+    $resultLabels = [
+        'failed' => '실패',
+        'improvement' => '개선',
+        'not_available' => '테스트불가',
+    ];
+    $sourceLabel = ((string)($defect['defect_source'] ?? 'test_case')) === 'manual'
+        ? '직접 등록'
+        : '테스트 케이스';
+    $caseLabel = ((string)($defect['defect_source'] ?? 'test_case')) === 'manual'
+        ? ((string)($defect['manual_location'] ?? '') ?: '테스트 케이스 외')
+        : sprintf(
+            '%s / %s / %s',
+            (string)($defect['test_run_name'] ?? '-'),
+            (string)($defect['scenario_name'] ?? '-'),
+            trim(sprintf('%s %s', (string)($defect['case_code'] ?? ''), (string)($defect['case_name'] ?? ''))) ?: '-'
+        );
+    $subject = sprintf('[하나원큐오토 통합테스트] 결함 #%d 접수/재접수', $defectId);
+    $body = implode("\n", [
+        '결함이 접수 또는 재접수되었습니다.',
+        '',
+        '결함 ID: #' . $defectId,
+        '구분: ' . $sourceLabel,
+        '결과: ' . ($resultLabels[(string)$defect['result_status']] ?? (string)$defect['result_status']),
+        '제목: ' . (string)$defect['title'],
+        '대상: ' . $caseLabel,
+        '등록자: ' . (string)$defect['reporter_organization'] . ' / ' . (string)$defect['reporter_name'] . ' (' . (string)$defect['reporter_login_id'] . ')',
+        '접수일시: ' . (string)$defect['created_at'],
+        '',
+        '내용:',
+        (string)($defect['description'] ?? '-'),
+    ]);
+
+    send_app_mail($recipients, $subject, $body);
+}
+
+function send_app_mail(array $recipients, string $subject, string $body): void
+{
+    $validRecipients = array_values(array_filter(
+        array_map('trim', $recipients),
+        static fn (string $email): bool => filter_var($email, FILTER_VALIDATE_EMAIL) !== false
+    ));
+
+    if ($validRecipients === []) {
+        return;
+    }
+
+    $mailConfig = app_config('mail') ?? [];
+    $from = (string)($mailConfig['from'] ?? 'no-reply@example.com');
+    $fromName = (string)($mailConfig['from_name'] ?? 'Hana Test Flow');
+    $encodedFromName = function_exists('mb_encode_mimeheader')
+        ? mb_encode_mimeheader($fromName, 'UTF-8')
+        : $fromName;
+    $encodedSubject = function_exists('mb_encode_mimeheader')
+        ? mb_encode_mimeheader($subject, 'UTF-8')
+        : $subject;
+    $headers = [
+        'MIME-Version: 1.0',
+        'Content-Type: text/plain; charset=UTF-8',
+        'From: ' . $encodedFromName . ' <' . $from . '>',
+    ];
+
+    foreach ($validRecipients as $recipient) {
+        @mail($recipient, $encodedSubject, $body, implode("\r\n", $headers));
+    }
+}
+
 function is_secure_request(): bool
 {
     return (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off');

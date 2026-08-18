@@ -579,7 +579,6 @@ button.dashboard-stat:hover {
   gap: 16px;
   border-radius: 8px;
   padding: 16px;
-  background: #edf4f2;
   scroll-behavior: smooth;
 }
 
@@ -2150,7 +2149,7 @@ button.dashboard-stat:hover {
 .app-shell {
   background:
     radial-gradient(circle at 10% 0%, rgba(0, 133, 111, 0.1), transparent 30%),
-    linear-gradient(180deg, #f6f8f8 0%, #eef3f2 100%);
+    linear-gradient(180deg, #213c38 0%, #2e4541 100%);
 }
 
 .dashboard-shell {
@@ -2502,7 +2501,7 @@ button.dashboard-stat:hover {
 
 .column-header {
   border-bottom: 1px solid rgba(0, 111, 95, 0.16);
-  background: #cfe7e1;
+  background: #bedbd1;
   box-shadow: none;
 }
 

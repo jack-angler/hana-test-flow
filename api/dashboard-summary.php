@@ -45,6 +45,7 @@ try {
 
 function dashboard_overview(PDO $pdo): array
 {
+    $resultFilter = result_aggregation_filter('tcr');
     $caseCount = (int)$pdo->query(
         'SELECT COUNT(*)
          FROM test_cases
@@ -53,21 +54,21 @@ function dashboard_overview(PDO $pdo): array
     )->fetchColumn();
 
     $testedCaseCount = (int)$pdo->query(
-        'SELECT COUNT(DISTINCT test_case_id)
-         FROM test_case_results
-         WHERE result_status <> "not_tested"'
+        'SELECT COUNT(DISTINCT tcr.test_case_id)
+         FROM test_case_results tcr
+         WHERE tcr.result_status <> "not_tested"' . $resultFilter
     )->fetchColumn();
 
     $resultCount = (int)$pdo->query(
         'SELECT COUNT(*)
-         FROM test_case_results
-         WHERE result_status <> "not_tested"'
+         FROM test_case_results tcr
+         WHERE tcr.result_status <> "not_tested"' . $resultFilter
     )->fetchColumn();
 
     $passedCount = (int)$pdo->query(
         'SELECT COUNT(*)
-         FROM test_case_results
-         WHERE result_status = "passed"'
+         FROM test_case_results tcr
+         WHERE tcr.result_status = "passed"' . $resultFilter
     )->fetchColumn();
 
     $defectCount = (int)$pdo->query('SELECT COUNT(*) FROM defects')->fetchColumn();
@@ -92,11 +93,12 @@ function dashboard_overview(PDO $pdo): array
 
 function dashboard_result_counts(PDO $pdo): array
 {
+    $resultFilter = result_aggregation_filter('tcr');
     $stmt = $pdo->query(
-        'SELECT result_status, COUNT(*) AS count
-         FROM test_case_results
-         WHERE result_status <> "not_tested"
-         GROUP BY result_status'
+        'SELECT tcr.result_status, COUNT(*) AS count
+         FROM test_case_results tcr
+         WHERE tcr.result_status <> "not_tested"' . $resultFilter . '
+         GROUP BY tcr.result_status'
     );
 
     return keyed_counts($stmt->fetchAll(), 'result_status');
@@ -124,6 +126,7 @@ function dashboard_defect_counts(PDO $pdo): array
 
 function dashboard_organization_progress(PDO $pdo): array
 {
+    $resultFilter = result_aggregation_filter('tcr');
     $stmt = $pdo->query(
         'SELECT
             o.id,
@@ -135,7 +138,7 @@ function dashboard_organization_progress(PDO $pdo): array
          FROM organizations o
          LEFT JOIN test_case_results tcr
             ON tcr.organization_id = o.id
-           AND tcr.result_status <> "not_tested"
+           AND tcr.result_status <> "not_tested"' . $resultFilter . '
          LEFT JOIN defects d
             ON d.reporter_organization_id = o.id
          GROUP BY o.id, o.name
@@ -167,6 +170,7 @@ function dashboard_organization_progress(PDO $pdo): array
 
 function dashboard_scenario_quality(PDO $pdo): array
 {
+    $resultFilter = result_aggregation_filter('tcr');
     $stmt = $pdo->query(
         'SELECT
             ts.id,
@@ -184,7 +188,7 @@ function dashboard_scenario_quality(PDO $pdo): array
            AND tc.is_deleted = 0
          LEFT JOIN test_case_results tcr
             ON tcr.test_case_id = tc.id
-           AND tcr.result_status <> "not_tested"
+           AND tcr.result_status <> "not_tested"' . $resultFilter . '
          LEFT JOIN defects d
             ON d.test_case_id = tc.id
          GROUP BY ts.id, tr.id, tr.name, ts.name, ts.sort_order
@@ -270,6 +274,7 @@ function dashboard_run_progress(PDO $pdo): array
 
 function dashboard_run_progress_rows(PDO $pdo): array
 {
+    $resultFilter = result_aggregation_filter('tcr');
     $stmt = $pdo->query(
         "SELECT
             tr.id AS run_id,
@@ -304,7 +309,7 @@ function dashboard_run_progress_rows(PDO $pdo): array
            AND tc.is_deleted = 0
          LEFT JOIN test_case_results tcr
             ON tcr.test_case_id = tc.id
-           AND tcr.result_status <> 'not_tested'
+           AND tcr.result_status <> 'not_tested'" . $resultFilter . "
          WHERE tr.is_active = 1
            AND ts.id IS NOT NULL
          GROUP BY tr.id, tr.name, tr.updated_at, ts.id, ts.name, ts.sort_order
@@ -466,6 +471,27 @@ function keyed_counts(array $rows, string $key): array
     }
 
     return $counts;
+}
+
+function result_aggregation_filter(string $alias): string
+{
+    $excludedLoginIds = result_aggregation_excluded_login_ids();
+
+    if ($excludedLoginIds === []) {
+        return '';
+    }
+
+    $quotedLoginIds = array_map(
+        static fn (string $loginId): string => "'" . str_replace("'", "''", $loginId) . "'",
+        $excludedLoginIds
+    );
+
+    return ' AND NOT EXISTS (
+            SELECT 1
+            FROM users result_user
+            WHERE result_user.id = ' . $alias . '.user_id
+              AND result_user.login_id IN (' . implode(', ', $quotedLoginIds) . ')
+        )';
 }
 
 function percent(int $value, int $total): int
