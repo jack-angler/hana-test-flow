@@ -28,6 +28,7 @@ try {
         'summary' => [
             'overview' => dashboard_overview($pdo),
             'result_counts' => dashboard_result_counts($pdo),
+            'daily_progress' => dashboard_daily_progress($pdo),
             'defect_counts' => dashboard_defect_counts($pdo),
             'organization_progress' => dashboard_organization_progress($pdo),
             'scenario_quality' => dashboard_scenario_quality($pdo),
@@ -116,6 +117,54 @@ function dashboard_defect_counts(PDO $pdo): array
     );
 
     return keyed_counts($stmt->fetchAll(), 'status');
+}
+
+function dashboard_daily_progress(PDO $pdo): array
+{
+    $resultFilter = result_aggregation_filter('tcr');
+    $dateSql = 'DATE(COALESCE(tcr.tested_at, tcr.updated_at, tcr.created_at))';
+    $finalDate = new DateTimeImmutable('2026-08-28');
+    $stmt = $pdo->query(
+        'SELECT
+            ' . $dateSql . ' AS progress_date,
+            COUNT(*) AS result_count
+         FROM test_case_results tcr
+         WHERE tcr.result_status <> "not_tested"
+           AND ' . $dateSql . ' <= "2026-08-28"' . $resultFilter . '
+         GROUP BY ' . $dateSql . '
+         ORDER BY progress_date ASC'
+    );
+
+    $rows = $stmt->fetchAll();
+
+    if ($rows === []) {
+        return [];
+    }
+
+    $countsByDate = [];
+
+    foreach ($rows as $row) {
+        $countsByDate[(string)$row['progress_date']] = (int)$row['result_count'];
+    }
+
+    $startDate = new DateTimeImmutable((string)$rows[0]['progress_date']);
+    $cumulativeCount = 0;
+    $dailyProgress = [];
+
+    for ($date = $startDate; $date <= $finalDate; $date = $date->modify('+1 day')) {
+        $dateKey = $date->format('Y-m-d');
+        $resultCount = $countsByDate[$dateKey] ?? 0;
+        $cumulativeCount += $resultCount;
+
+        $dailyProgress[] = [
+            'date' => $dateKey,
+            'label' => $date->format('m.d'),
+            'result_count' => $resultCount,
+            'cumulative_count' => $cumulativeCount,
+        ];
+    }
+
+    return $dailyProgress;
 }
 
 function dashboard_organization_progress(PDO $pdo): array

@@ -216,6 +216,20 @@
   font-weight: 800;
 }
 
+.daily-progress-chart {
+  width: 100%;
+  height: 320px;
+}
+
+.daily-progress-chart .recharts-default-legend {
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.daily-progress-chart .recharts-tooltip-wrapper {
+  outline: none;
+}
+
 .dashboard-header-actions {
   display: flex;
   align-items: center;

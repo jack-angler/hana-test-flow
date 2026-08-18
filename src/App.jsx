@@ -1,4 +1,15 @@
 import { useEffect, useRef, useState } from "react";
+import {
+  Bar,
+  CartesianGrid,
+  ComposedChart,
+  Legend,
+  Line,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
 import "./App.css";
 import CommonDialog from "./components/CommonDialog";
 import HelpContent from "./components/HelpContent";
@@ -1811,6 +1822,7 @@ function App() {
 
       const overview = dashboardSummary?.overview ?? {};
       const defectCounts = dashboardSummary?.defect_counts ?? {};
+      const dailyProgress = dashboardSummary?.daily_progress ?? [];
       const scenarioQuality = dashboardSummary?.scenario_quality ?? [];
       const scenarioQualityGroups = Object.entries(
         scenarioQuality.reduce((groups, scenario) => {
@@ -1881,6 +1893,66 @@ function App() {
 
             {dashboardMessage && (
               <p className="form-message is-error">{dashboardMessage}</p>
+            )}
+          </div>
+
+          <div className="dashboard-panel">
+            <div className="dashboard-panel-header">
+              <div>
+                <h2>테스트진행 일별 추이</h2>
+              </div>
+            </div>
+            {dailyProgress.length > 0 ? (
+              <div className="daily-progress-chart" aria-label="daily test progress chart">
+                <ResponsiveContainer width="100%" height="100%">
+                  <ComposedChart
+                    data={dailyProgress}
+                    margin={{ top: 8, right: 18, bottom: 4, left: 0 }}
+                  >
+                    <CartesianGrid stroke="#dce9e6" strokeDasharray="3 3" />
+                    <XAxis
+                      dataKey="label"
+                      tick={{ fill: "#425f5a", fontSize: 12 }}
+                      axisLine={{ stroke: "#bdd2ce" }}
+                      tickLine={false}
+                    />
+                    <YAxis
+                      allowDecimals={false}
+                      tick={{ fill: "#425f5a", fontSize: 12 }}
+                      axisLine={{ stroke: "#bdd2ce" }}
+                      tickLine={false}
+                    />
+                    <Tooltip
+                      formatter={(value, name) => [
+                        Number(value).toLocaleString(),
+                        name,
+                      ]}
+                      labelFormatter={(_, payload) =>
+                        payload?.[0]?.payload?.date ?? ""
+                      }
+                    />
+                    <Legend verticalAlign="top" height={32} />
+                    <Bar
+                      dataKey="result_count"
+                      name="당일실적"
+                      fill="#60a5fa"
+                      radius={[4, 4, 0, 0]}
+                      barSize={28}
+                    />
+                    <Line
+                      type="monotone"
+                      dataKey="cumulative_count"
+                      name="누적실적"
+                      stroke="#007967"
+                      strokeWidth={3}
+                      dot={{ r: 3 }}
+                      activeDot={{ r: 5 }}
+                    />
+                  </ComposedChart>
+                </ResponsiveContainer>
+              </div>
+            ) : (
+              <p className="empty-message">표시할 테스트 진행 이력이 없습니다.</p>
             )}
           </div>
 
