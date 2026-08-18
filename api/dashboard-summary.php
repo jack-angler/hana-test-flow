@@ -106,19 +106,13 @@ function dashboard_result_counts(PDO $pdo): array
 
 function dashboard_defect_counts(PDO $pdo): array
 {
+    $statusSql = dashboard_defect_status_sql('d');
     $stmt = $pdo->query(
         'SELECT
-            CASE
-                WHEN status = "action_completed" THEN "tester_confirmation_pending"
-                ELSE status
-            END AS status,
+            ' . $statusSql . ' AS status,
             COUNT(*) AS count
-         FROM defects
-         GROUP BY
-            CASE
-                WHEN status = "action_completed" THEN "tester_confirmation_pending"
-                ELSE status
-            END'
+         FROM defects d
+         GROUP BY ' . $statusSql
     );
 
     return keyed_counts($stmt->fetchAll(), 'status');
@@ -404,28 +398,28 @@ function dashboard_defect_action_progress(PDO $pdo): array
 
 function dashboard_defect_action_progress_rows(PDO $pdo): array
 {
+    $statusSql = dashboard_defect_status_sql('d');
     $stmt = $pdo->query(
         'SELECT
-            tr.id AS run_id,
-            tr.name AS run_name,
+            COALESCE(tr.id, 0) AS run_id,
+            COALESCE(tr.name, "기타") AS run_name,
             COUNT(DISTINCT CASE WHEN d.result_status = "failed" THEN d.id ELSE NULL END) AS failed_count,
             COUNT(DISTINCT CASE WHEN d.result_status = "improvement" THEN d.id ELSE NULL END) AS improvement_count,
             COUNT(DISTINCT CASE WHEN d.result_status = "not_available" THEN d.id ELSE NULL END) AS non_defect_count,
             COUNT(DISTINCT d.id) AS total_count,
-            COUNT(DISTINCT CASE WHEN d.status = "received" THEN d.id ELSE NULL END) AS not_started_count,
-            COUNT(DISTINCT CASE WHEN d.status = "assigned" THEN d.id ELSE NULL END) AS in_progress_count,
-            COUNT(DISTINCT CASE WHEN d.status IN ("action_completed", "tester_confirmation_pending", "verification_completed") THEN d.id ELSE NULL END) AS action_completed_count,
-            COUNT(DISTINCT CASE WHEN d.status = "verification_completed" THEN d.id ELSE NULL END) AS verified_count
-         FROM test_runs tr
-         LEFT JOIN test_scenarios ts ON ts.test_run_id = tr.id
+            COUNT(DISTINCT CASE WHEN ' . $statusSql . ' = "received" THEN d.id ELSE NULL END) AS not_started_count,
+            COUNT(DISTINCT CASE WHEN ' . $statusSql . ' = "assigned" THEN d.id ELSE NULL END) AS in_progress_count,
+            COUNT(DISTINCT CASE WHEN ' . $statusSql . ' IN ("tester_confirmation_pending", "verification_completed") THEN d.id ELSE NULL END) AS action_completed_count,
+            COUNT(DISTINCT CASE WHEN ' . $statusSql . ' = "verification_completed" THEN d.id ELSE NULL END) AS verified_count
+         FROM defects d
          LEFT JOIN test_cases tc
-            ON tc.test_scenario_id = ts.id
+            ON tc.id = d.test_case_id
            AND tc.is_current = 1
            AND tc.is_deleted = 0
-         LEFT JOIN defects d ON d.test_case_id = tc.id
-         WHERE tr.is_active = 1
-         GROUP BY tr.id, tr.name, tr.updated_at
-         ORDER BY tr.updated_at DESC, tr.id DESC'
+         LEFT JOIN test_scenarios ts ON ts.id = tc.test_scenario_id
+         LEFT JOIN test_runs tr ON tr.id = ts.test_run_id AND tr.is_active = 1
+         GROUP BY COALESCE(tr.id, 0), COALESCE(tr.name, "기타"), COALESCE(tr.updated_at, "1970-01-01")
+         ORDER BY COALESCE(tr.updated_at, "1970-01-01") DESC, COALESCE(tr.id, 0) DESC'
     );
 
     return $stmt->fetchAll();
@@ -473,6 +467,27 @@ function keyed_counts(array $rows, string $key): array
     return $counts;
 }
 
+function dashboard_defect_status_sql(string $alias): string
+{
+    return 'CASE
+        WHEN ' . $alias . '.status = "verification_completed"
+            THEN "verification_completed"
+        WHEN ' . $alias . '.status IN ("action_completed", "tester_confirmation_pending")
+            THEN "tester_confirmation_pending"
+        WHEN ' . $alias . '.verified_at IS NOT NULL
+            THEN "verification_completed"
+        WHEN ' . $alias . '.action_completed_at IS NOT NULL
+            THEN "tester_confirmation_pending"
+        WHEN ' . $alias . '.assignee_user_id IS NOT NULL
+            THEN "assigned"
+        WHEN ' . $alias . '.status = "assigned"
+            THEN "assigned"
+        WHEN ' . $alias . '.status = "received"
+            THEN "received"
+        ELSE "received"
+    END';
+}
+
 function result_aggregation_filter(string $alias): string
 {
     $excludedLoginIds = result_aggregation_excluded_login_ids();
@@ -502,3 +517,4 @@ function percent(int $value, int $total): int
 
     return min(100, max(0, (int)round(($value / $total) * 100)));
 }
+

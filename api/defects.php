@@ -133,16 +133,16 @@ function normalized_defect_status_sql(string $alias = 'd'): string
             THEN "verification_completed"
         WHEN ' . $alias . '.status IN ("action_completed", "tester_confirmation_pending")
             THEN "tester_confirmation_pending"
-        WHEN ' . $alias . '.status = "assigned"
-            THEN "assigned"
-        WHEN ' . $alias . '.status = "received"
-            THEN "received"
         WHEN ' . $alias . '.verified_at IS NOT NULL
             THEN "verification_completed"
         WHEN ' . $alias . '.action_completed_at IS NOT NULL
             THEN "tester_confirmation_pending"
         WHEN ' . $alias . '.assignee_user_id IS NOT NULL
             THEN "assigned"
+        WHEN ' . $alias . '.status = "assigned"
+            THEN "assigned"
+        WHEN ' . $alias . '.status = "received"
+            THEN "received"
         ELSE "received"
     END';
 }

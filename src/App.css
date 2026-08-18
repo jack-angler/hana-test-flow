@@ -1593,6 +1593,55 @@ button.dashboard-stat:hover {
   box-shadow: 0 24px 60px rgba(10, 80, 72, 0.14);
 }
 
+.test-login-box {
+  width: min(100%, 420px);
+  background: #ffffff;
+  border: 1px solid rgba(0, 117, 100, 0.16);
+  border-radius: 8px;
+  padding: 34px;
+  box-shadow: 0 24px 60px rgba(10, 80, 72, 0.14);
+}
+
+.test-login-list {
+  display: grid;
+  gap: 10px;
+}
+
+.test-login-account {
+  width: 100%;
+  min-height: 58px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border: 1px solid #bdd2ce;
+  border-radius: 6px;
+  padding: 0 16px;
+  color: #073b35;
+  background: #fbfdfc;
+  cursor: pointer;
+}
+
+.test-login-account:hover {
+  border-color: #00856f;
+  background: #f2faf8;
+}
+
+.test-login-account:disabled {
+  cursor: default;
+  opacity: 0.7;
+}
+
+.test-login-account strong {
+  font-size: 18px;
+}
+
+.test-login-account span {
+  color: #00856f;
+  font-size: 14px;
+  font-weight: 800;
+}
+
 .brand {
   display: flex;
   align-items: flex-start;

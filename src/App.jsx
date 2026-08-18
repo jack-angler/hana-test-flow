@@ -4,10 +4,18 @@ import CommonDialog from "./components/CommonDialog";
 import HelpContent from "./components/HelpContent";
 import { apiRequest, apiUrl } from "./lib/api";
 
+const testLoginAccounts = [
+  { loginId: "P260511", password: "capital1!", label: "P260511" },
+  { loginId: "admin", password: "capital1!", label: "admin" },
+  { loginId: "nicecast", password: "0000", label: "nicecast" },
+];
+
 function App() {
   const [currentUser, setCurrentUser] = useState(null);
   const [activeMenu, setActiveMenu] = useState("");
   const [isCheckingSession, setIsCheckingSession] = useState(true);
+  const [testLoginMessage, setTestLoginMessage] = useState("");
+  const [testLoginLoadingId, setTestLoginLoadingId] = useState("");
   const [loginForm, setLoginForm] = useState({
     loginId: "",
     password: "",
@@ -112,6 +120,10 @@ function App() {
   const manualDefectDescriptionRef = useRef(null);
   const actionFileInputRef = useRef(null);
   const evidenceDescriptionRef = useRef(null);
+  const isTestLoginPath = /\/test-login\/?$/.test(window.location.pathname);
+  const appRootPath = isTestLoginPath
+    ? window.location.pathname.replace(/\/test-login\/?$/, "/")
+    : "/";
   const evidenceEstimateNumberRef = useRef(null);
   const evidenceTargetLoginIdRef = useRef(null);
 
@@ -571,6 +583,30 @@ function App() {
       setLoginMessage(error.message);
     } finally {
       setIsLoggingIn(false);
+    }
+  };
+
+  const loginWithTestAccount = async (account) => {
+    setTestLoginMessage("");
+    setTestLoginLoadingId(account.loginId);
+
+    try {
+      const result = await apiRequest("/login.php", {
+        method: "POST",
+        body: JSON.stringify({
+          login_id: account.loginId,
+          password: account.password,
+          remember_me: false,
+        }),
+      });
+
+      setCurrentUser(result.user);
+      setActiveMenu("dashboard");
+      window.history.replaceState(null, "", appRootPath);
+    } catch (error) {
+      setTestLoginMessage(error.message);
+    } finally {
+      setTestLoginLoadingId("");
     }
   };
 
@@ -2834,6 +2870,58 @@ function App() {
     return (
       <main className="app-shell">
         <div className="loading-box">확인 중</div>
+      </main>
+    );
+  }
+
+  if (isTestLoginPath) {
+    return (
+      <main className="app-shell">
+        <section className="test-login-box" aria-label="테스트 로그인">
+          <div className="brand">
+            <img
+              style={{ width: "50px" }}
+              src={`${import.meta.env.BASE_URL}hana-ci.svg`}
+              alt=""
+            />
+            <p className="brand-name">
+              테스트 로그인<span>계정 선택</span>
+            </p>
+          </div>
+
+          <div className="test-login-list">
+            {testLoginAccounts.map((account) => (
+              <button
+                key={account.loginId}
+                type="button"
+                className="test-login-account"
+                disabled={testLoginLoadingId !== ""}
+                onClick={() => loginWithTestAccount(account)}
+              >
+                <strong>{account.label}</strong>
+                <span>
+                  {testLoginLoadingId === account.loginId
+                    ? "로그인 중"
+                    : "클릭해서 로그인"}
+                </span>
+              </button>
+            ))}
+          </div>
+
+          {testLoginMessage && (
+            <p className="form-message is-error">{testLoginMessage}</p>
+          )}
+
+          <button
+            type="button"
+            className="text-button"
+            onClick={() => {
+              window.location.href = appRootPath;
+            }}
+          >
+            일반 로그인으로 이동
+          </button>
+        </section>
       </main>
     );
   }
