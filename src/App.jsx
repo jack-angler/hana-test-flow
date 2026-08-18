@@ -154,8 +154,7 @@ function App() {
   };
 
   const currentRoleLabel = roleLabels[currentUser?.role] ?? "테스터";
-  const canSubmitTestResult =
-    currentUser?.role === "tester" || currentUser?.login_id === "P260513";
+  const canSubmitTestResult = currentUser?.role === "tester";
   const isReadOnlyTesting = !canSubmitTestResult;
   const testerConfirmationPendingStatuses = [
     "action_completed",

@@ -78,13 +78,12 @@ function user_role(string $loginId, int $organizationId): string
 
 function result_aggregation_excluded_login_ids(): array
 {
-    return ['P260513'];
+    return [];
 }
 
 function can_submit_test_result(array $user): bool
 {
-    return ($user['role'] ?? '') === 'tester'
-        || in_array((string)($user['login_id'] ?? ''), result_aggregation_excluded_login_ids(), true);
+    return ($user['role'] ?? '') === 'tester';
 }
 
 function notify_new_defect(PDO $pdo, int $defectId): void
