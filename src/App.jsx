@@ -15,6 +15,42 @@ import CommonDialog from "./components/CommonDialog";
 import HelpContent from "./components/HelpContent";
 import { apiRequest, apiUrl } from "./lib/api";
 
+const formatDateLabel = (date) => {
+  const pad = (number) => String(number).padStart(2, "0");
+
+  return `${pad(date.getMonth() + 1)}.${pad(date.getDate())}`;
+};
+
+function DailyProgressXAxisTick({ x, y, payload, todayDateLabel }) {
+  const label = payload?.value ?? "";
+  const isToday = label === todayDateLabel;
+
+  return (
+    <g transform={`translate(${x},${y})`}>
+      {isToday && (
+        <rect
+          x="-19"
+          y="5"
+          width="38"
+          height="22"
+          rx="11"
+          fill="#007967"
+        />
+      )}
+      <text
+        x="0"
+        y={isToday ? "20" : "16"}
+        textAnchor="middle"
+        className={
+          isToday ? "daily-progress-tick is-today" : "daily-progress-tick"
+        }
+      >
+        {label}
+      </text>
+    </g>
+  );
+}
+
 const testLoginAccounts = [
   { loginId: "P260511", label: "P260511" },
   { loginId: "admin", label: "admin" },
@@ -234,6 +270,14 @@ function App() {
       date.getDate(),
     )} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
   };
+
+  const renderDefectTimeline = (defect) => (
+    <span className="defect-date-line">
+      <span>결함등록 {formatDateTime(defect.created_at)}</span>
+      <span>조치일자 {formatDateTime(defect.action_completed_at)}</span>
+      <span>확인일자 {formatDateTime(defect.verified_at)}</span>
+    </span>
+  );
 
   const createClientId = () => {
     if (typeof crypto !== "undefined" && crypto.randomUUID) {
@@ -1797,6 +1841,7 @@ function App() {
                           : `${defect.test_run_name} · ${defect.case_code}`}{" "}
                         · {defect.assignee_name || "담당자 미지정"}
                       </em>
+                      {renderDefectTimeline(defect)}
                     </div>
                     <span className="todo-action">
                       {isProjectTeam ? "조치" : "확인"}
@@ -1823,6 +1868,7 @@ function App() {
       const overview = dashboardSummary?.overview ?? {};
       const defectCounts = dashboardSummary?.defect_counts ?? {};
       const dailyProgress = dashboardSummary?.daily_progress ?? [];
+      const todayDateLabel = formatDateLabel(new Date());
       const scenarioQuality = dashboardSummary?.scenario_quality ?? [];
       const scenarioQualityGroups = Object.entries(
         scenarioQuality.reduce((groups, scenario) => {
@@ -1912,12 +1958,20 @@ function App() {
                     <CartesianGrid stroke="#dce9e6" strokeDasharray="3 3" />
                     <XAxis
                       dataKey="label"
-                      tick={{ fill: "#425f5a", fontSize: 12 }}
+                      tick={(tickProps) => (
+                        <DailyProgressXAxisTick
+                          {...tickProps}
+                          todayDateLabel={todayDateLabel}
+                        />
+                      )}
                       axisLine={{ stroke: "#bdd2ce" }}
                       tickLine={false}
+                      interval={0}
                     />
                     <YAxis
                       allowDecimals={false}
+                      domain={[0, 800]}
+                      ticks={[0, 100, 200, 300, 400, 500, 600, 700, 800]}
                       tick={{ fill: "#425f5a", fontSize: 12 }}
                       axisLine={{ stroke: "#bdd2ce" }}
                       tickLine={false}
@@ -2066,7 +2120,7 @@ function App() {
                         <th rowSpan={2}>구분</th>
                         <th rowSpan={2}>대상건수</th>
                         <th className="new-car-header" colSpan={2}>
-                          신차사업팀
+                          본사
                         </th>
                         <th className="branch-header" colSpan={2}>
                           지점
@@ -2614,6 +2668,7 @@ function App() {
                       ? defect.manual_location || "테스트 케이스 외"
                       : `${defect.test_run_name} · ${defect.case_code}`}
                   </em>
+                  {renderDefectTimeline(defect)}
                 </button>
               ))}
               {defects.length === 0 && (
@@ -2720,13 +2775,18 @@ function App() {
                     </dd>
                   </div>
                   <div>
-                    <dt>최초등록일</dt>
+                    <dt>결함등록일</dt>
                     <dd>{formatDateTime(selectedDefect.created_at)}</dd>
                   </div>
                   <div>
-                    <dt>마지막 수정일</dt>
-                    <dd>{formatDateTime(selectedDefect.updated_at)}</dd>
+                    <dt>조치일자</dt>
+                    <dd>{formatDateTime(selectedDefect.action_completed_at)}</dd>
                   </div>
+                  <div>
+                    <dt>확인일자</dt>
+                    <dd>{formatDateTime(selectedDefect.verified_at)}</dd>
+                  </div>
+                  <div className="defect-summary-spacer" aria-hidden="true" />
                 </dl>
 
                 <div className="defect-description">

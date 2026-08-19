@@ -230,6 +230,17 @@
   outline: none;
 }
 
+.daily-progress-tick {
+  fill: #425f5a;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.daily-progress-tick.is-today {
+  fill: #ffffff;
+  font-weight: 800;
+}
+
 .dashboard-header-actions {
   display: flex;
   align-items: center;
@@ -1201,6 +1212,23 @@ button.dashboard-stat:hover {
   line-height: 1.4;
 }
 
+.defect-date-line {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px 8px;
+  color: #5f7470;
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1.35;
+}
+
+.defect-date-line span {
+  min-width: 0;
+  border-radius: 4px;
+  padding: 3px 6px;
+  background: #eef5f3;
+}
+
 .defect-list-footer {
   display: flex;
   align-items: center;
@@ -1304,6 +1332,10 @@ button.dashboard-stat:hover {
   gap: 10px;
   padding: 11px 0;
   border-bottom: 1px solid rgba(26, 65, 59, 0.08);
+}
+
+.defect-summary-grid .defect-summary-spacer {
+  min-height: 42px;
 }
 
 .defect-summary-grid dt {

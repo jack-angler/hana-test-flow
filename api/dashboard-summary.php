@@ -123,6 +123,8 @@ function dashboard_daily_progress(PDO $pdo): array
 {
     $resultFilter = result_aggregation_filter('tcr');
     $dateSql = 'DATE(COALESCE(tcr.tested_at, tcr.updated_at, tcr.created_at))';
+    $today = new DateTimeImmutable('today');
+    $todaySql = $today->format('Y-m-d');
     $finalDate = new DateTimeImmutable('2026-08-28');
     $stmt = $pdo->query(
         'SELECT
@@ -130,7 +132,7 @@ function dashboard_daily_progress(PDO $pdo): array
             COUNT(*) AS result_count
          FROM test_case_results tcr
          WHERE tcr.result_status <> "not_tested"
-           AND ' . $dateSql . ' <= "2026-08-28"' . $resultFilter . '
+           AND ' . $dateSql . ' <= "' . $todaySql . '"' . $resultFilter . '
          GROUP BY ' . $dateSql . '
          ORDER BY progress_date ASC'
     );
@@ -153,14 +155,18 @@ function dashboard_daily_progress(PDO $pdo): array
 
     for ($date = $startDate; $date <= $finalDate; $date = $date->modify('+1 day')) {
         $dateKey = $date->format('Y-m-d');
-        $resultCount = $countsByDate[$dateKey] ?? 0;
-        $cumulativeCount += $resultCount;
+        $isFutureDate = $date > $today;
+        $resultCount = $isFutureDate ? null : ($countsByDate[$dateKey] ?? 0);
+
+        if (!$isFutureDate) {
+            $cumulativeCount += $resultCount;
+        }
 
         $dailyProgress[] = [
             'date' => $dateKey,
             'label' => $date->format('m.d'),
             'result_count' => $resultCount,
-            'cumulative_count' => $cumulativeCount,
+            'cumulative_count' => $isFutureDate ? null : $cumulativeCount,
         ];
     }
 
@@ -333,13 +339,13 @@ function dashboard_run_progress_rows(PDO $pdo): array
             END) AS all_completed_case_count,
             COUNT(DISTINCT CASE
                 WHEN tcr.id IS NOT NULL
-                 AND tcr.organization_id = 100
+                 AND tcr.organization_id IN (99, 100)
                 THEN tc.id
                 ELSE NULL
             END) AS new_car_completed_case_count,
             COUNT(DISTINCT CASE
                 WHEN tcr.id IS NOT NULL
-                 AND tcr.organization_id NOT IN (100, 900)
+                 AND tcr.organization_id NOT IN (99, 100, 900)
                 THEN tc.id
                 ELSE NULL
             END) AS branch_completed_case_count
